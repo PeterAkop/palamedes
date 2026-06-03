@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Dark slate-blue tile reads as "professional / legal" without
+       the brand color clashing with future theme swaps. -->
+  <rect width="32" height="32" rx="6" fill="#1e3a8a" />
+  <!-- Lucide Scale icon (justice scales) at 24-unit viewport,
+       translated 4 px in each direction for 4 px padding inside the
+       32 px tile. Stroke bumped to 2.5 for legibility at 16x16. -->
+  <g
+    transform="translate(4 4)"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="2.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+    <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+    <path d="M7 21h10" />
+    <path d="M12 3v18" />
+    <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
+  </g>
+</svg>
