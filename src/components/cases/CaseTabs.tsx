@@ -25,6 +25,7 @@ import {
   type Source,
   type SourceKind,
 } from '@/data/cases';
+import AddNoteButton from './AddNoteButton';
 
 type TabId = 'overview' | 'sources' | 'tools';
 const TAB_IDS: readonly TabId[] = ['overview', 'sources', 'tools'] as const;
@@ -54,7 +55,9 @@ export default function CaseTabs({ caseData, client }: Props) {
     <div className="space-y-4">
       <Tablist active={activeTab} onChange={setTab} sourceCount={caseData.sources.length} />
       {activeTab === 'overview' && <OverviewTab caseData={caseData} client={client} />}
-      {activeTab === 'sources' && <SourcesTab sources={caseData.sources} />}
+      {activeTab === 'sources' && (
+        <SourcesTab caseId={caseData.id} sources={caseData.sources} />
+      )}
       {activeTab === 'tools' && <ToolsTab caseData={caseData} />}
     </div>
   );
@@ -211,7 +214,7 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
 
 // --- Sources tab ----------------------------------------------------------
 
-function SourcesTab({ sources }: { sources: Source[] }) {
+function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) {
   return (
     <div className="card bg-base-100 border border-base-300">
       <div className="card-body">
@@ -221,10 +224,8 @@ function SourcesTab({ sources }: { sources: Source[] }) {
             <span className="badge badge-ghost badge-sm">{sources.length}</span>
           </h2>
           <div className="flex items-center gap-1">
-            <button type="button" className="btn btn-sm btn-ghost gap-1" disabled>
-              <NotebookPen className="h-4 w-4" />
-              Add note
-            </button>
+            <AddNoteButton caseId={caseId} />
+            {/* Upload lands in slice 2 (Vercel Blob + Anthropic Files API). */}
             <button type="button" className="btn btn-sm btn-primary gap-1" disabled>
               <Upload className="h-4 w-4" />
               Upload

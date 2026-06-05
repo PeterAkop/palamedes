@@ -5,7 +5,7 @@ and what's still to build. Update this whenever a meaningful slice
 lands; reviewers should be able to read this in 5 minutes and know what
 they're walking into.
 
-_Last updated: 2026-06-05 — after `feat/db-cases` (PR #1)._
+_Last updated: 2026-06-05 — after `feat/sources` slice 1 (sources table + note ingestion + Haiku summaries)._
 
 ---
 
@@ -53,6 +53,35 @@ _Last updated: 2026-06-05 — after `feat/db-cases` (PR #1)._
   scripts/seed-dev.mjs`. `scripts/verify-db.mjs` prints table shapes
   to confirm a migration landed cleanly.
 
+### Phase A.1 second slice — sources DB + note ingestion + Haiku summaries (`feat/sources`)
+
+- **`sources` table** in `src/db/schema.ts` with FK to `cases` (cascade
+  delete), `owner_id`, kind (`whatsapp|email|file|note|scan`) and
+  status (`queued|processing|ready|failed`) CHECK-constrained against
+  `SOURCE_KINDS` / `SOURCE_STATUSES` const tuples, `metadata` jsonb
+  for kind-specific fields, plus `ai_summary` / `ai_summary_model` /
+  `blob_path` / `anthropic_file_id` / `error_message` columns ready
+  for files (slice 2) and async retry (later).
+- **Anthropic SDK plumbed.** `src/lib/anthropic.ts` — one shared
+  client, `MODELS = { haiku: 'claude-haiku-4-5', opus: 'claude-opus-4-7' }`.
+- **Haiku summariser.** `src/lib/sources/summarize.ts` —
+  `summarizeNote({ title, body })` calls Haiku with a UK-immigration-
+  solicitor system prompt, returns `{ summary, model }`. No streaming
+  / tool use / caching in slice 1 (note prompts are well below
+  Haiku's 4K cacheable minimum).
+- **Note ingestion route.** `POST /api/sources/notes` validates body
+  with Zod, checks case ownership, inserts a `processing` source,
+  runs Haiku synchronously, updates to `ready` (or `failed` with
+  `error_message`), returns the row.
+- **UI wired.** `src/components/cases/AddNoteButton.tsx` (client) —
+  daisyUI `<dialog>` modal, calls the route, `router.refresh()` on
+  success so the server component re-fetches with the new row. The
+  previously-`disabled` "Add note" button in the Sources tab now
+  opens this modal. Upload still disabled (slice 2).
+- **Seed enriched.** Seven sample notes (3 on Patel ILR, 2 on Singh
+  Spouse Visa, 2 on Khan Appeal) with pre-computed summaries
+  (`ai_summary_model='seed'`). Sources tab is rich on first load.
+
 ---
 
 ## 2. How the app should work
@@ -71,7 +100,7 @@ have multiple), they:
    the background. The case as a whole gets a **case summary** rolled
    up across sources.
 3. **Generate documents.** Pick a tool (e.g. _Cover Letter — ILR_) and
-   **Opus 4.8** drafts it using the case summary + selected sources as
+   **Opus 4.7** drafts it using the case summary + selected sources as
    context. The lawyer can chat with the model to refine the draft.
 4. **Review, edit, sign, file.** The AI never sends anything to the
    Home Office or the client; it produces drafts the solicitor signs
@@ -96,15 +125,19 @@ multi-tenancy.
 | `src/middleware.ts` | HTTP Basic Auth fence (fail-closed on missing env). |
 | `src/lib/auth.ts` | `getCurrentUserId()` — fence stand-in until real auth. |
 | `src/app/` | Routes. `cases/layout.tsx` owns the sidebar; `cases/[id]/page.tsx` the detail view. |
-| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools). Client components for URL-state interactions. |
+| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`. Client components for URL-state interactions and source ingestion. |
 | `src/components/layout/Header.tsx` | Palamedes top bar. |
 | `src/data/cases.ts` | View-model types + display labels (`CASE_TYPE_LABEL` etc.). _No data here any more_ — name is historical. |
-| `src/lib/cases/queries.ts` | Owner-scoped DB queries + mappers from DB rows to view-model. |
-| `src/db/schema.ts` | Drizzle tables, const tuples for enums, CHECK constraints. |
+| `src/lib/cases/queries.ts` | Owner-scoped case + client queries, plus the view-model mapper that calls into `sources/queries.ts`. |
+| `src/lib/sources/queries.ts` | Owner-scoped `listSourcesForCase` + DB→view mapper. |
+| `src/lib/sources/summarize.ts` | `summarizeNote` — Haiku 4.5 call with the UK-immigration system prompt. |
+| `src/lib/anthropic.ts` | Shared Anthropic SDK client + `MODELS` table. Server-only. |
+| `src/app/api/sources/notes/route.ts` | `POST` handler for note creation (Zod validation, ownership check, Haiku call). |
+| `src/db/schema.ts` | Drizzle tables (`clients`, `cases`, `sources`), const tuples for enums, CHECK constraints. |
 | `src/db/db.ts` | Drizzle client over Neon HTTP. Re-exports `schema`. |
 | `src/db/migrations/` | Generated SQL (one file per migration) + meta. |
 | `drizzle.config.ts` | drizzle-kit config; uses unpooled URL for DDL. |
-| `scripts/seed-dev.mjs` | TRUNCATE-and-reseed dev fixture (3 clients + 4 cases). |
+| `scripts/seed-dev.mjs` | TRUNCATE-and-reseed dev fixture (3 clients + 4 cases + 7 notes). |
 | `scripts/verify-db.mjs` | Post-migration sanity check (lists tables + columns). |
 
 ### Tech stack at a glance
@@ -112,7 +145,7 @@ multi-tenancy.
 - **Frontend:** Next 14 App Router · React 18 · TypeScript · Tailwind + DaisyUI (corporate theme) · Lucide icons.
 - **State / network:** Server components for most pages; SWR + NDJSON streaming for chat-on-generation (when it lands).
 - **DB:** Neon Postgres · Drizzle ORM · `@neondatabase/serverless` HTTP driver.
-- **AI:** `@anthropic-ai/sdk` · Haiku 4.5 (summaries) · Opus 4.8 (tool drafts).
+- **AI:** `@anthropic-ai/sdk` · Haiku 4.5 (summaries) · Opus 4.7 (tool drafts).
 - **Files:** Vercel Blob (private) for uploads · Anthropic Files API for Claude inputs.
 - **Tooling:** Biome (lint + format) · `drizzle-kit` (generate/migrate/studio) · Zod (input validation).
 
@@ -120,38 +153,40 @@ multi-tenancy.
 
 ## 3. What's outstanding
 
-### Phase A.1 remaining — sources, summaries, first tools
+### Phase A.1 remaining — files, paste, tools
 
-- **`sources` table.** Lands with its own migration. Schema sketch:
-  `id`, `case_id` (FK), `owner_id`, `kind` (CHECK on
-  `whatsapp|email|file|note|scan`), `title`, `content_preview`,
-  `source_received_at`, `metadata` (jsonb for kind-specific fields),
-  `status` (CHECK on `queued|processing|ready|failed`), `ai_summary`,
-  `blob_path` (for files), `created_at`, `updated_at`.
-- **Ingestion routes.**
-  - Manual upload → Vercel Blob (private) → `sources` row → background
-    Haiku summary job.
-  - Add note (paste text) → `sources` row → Haiku.
-  - Paste email / WhatsApp content → `sources` row → Haiku.
-- **Per-source Haiku summary** as a queued background job. Today's UI
-  already renders `status: 'processing'` and `aiSummary` empty-states
-  — they'll come alive when the job lands.
+- **File upload (`feat/sources` slice 2).** Manual upload →
+  Vercel Blob (private, `@vercel/blob`) → Anthropic Files API
+  (`anthropic.beta.files.upload`) → `sources` row with
+  `blob_path` + `anthropic_file_id` → Haiku summary referencing
+  the file_id. Connects the currently-disabled "Upload" button.
+  Likely shifts the Haiku call from synchronous to
+  `after()` / a polling loop since PDF summaries can take longer.
+- **Paste email / WhatsApp (`feat/sources` slice 3).** Modal with
+  kind picker; metadata fields (from/subject/from_phone). Same
+  summarise-on-insert pattern as notes.
+- **Per-source delete + retry.** Source row exposes
+  `error_message` when `status='failed'`; we need a UI affordance
+  to retry the summary, plus delete.
 - **Case summary** rolled up from source summaries (Haiku or Opus,
   TBD). Stored on `cases` (extends current `summary` column or adds
   `ai_summary` alongside the lawyer-authored one — decision pending).
-- **`generations` + `generation_messages` tables.** For the Tools tab.
-  Each tool run is a generation; refinement chat appends messages.
+  Where prompt caching first earns its keep — the case context will
+  cross Haiku's 4K cacheable minimum.
+- **`generations` + `generation_messages` tables (`feat/tools`).**
+  For the Tools tab. Each tool run is a generation; refinement chat
+  appends messages.
 - **First two tools** (Client Care Letter, Spouse Visa Cover Letter).
   Static registry in code; later moves to `src/lib/tools/`. Inputs are
-  the case summary + selected source summaries.
+  the case summary + selected source summaries. Opus 4.7.
 - **Chat-on-generation.** NDJSON streaming response + SWR mutation on
   the client.
 - **Collapsible sidebar.** URL-state hook is already wired
   (`?sidebar=hidden`); the visual collapse is in place. Confirm it
   survives the migration to DB-backed sidebar items.
 - **"New case" button** (currently `disabled` in `CaseSidebar`).
-- **"Add note" / "Upload" buttons** in the Sources tab (currently
-  `disabled` in `CaseTabs`).
+- **"Upload" button** in the Sources tab (still `disabled` in
+  `CaseTabs` — wires up in slice 2). "Add note" is live.
 
 ### Phase A.2 — inbound channels
 

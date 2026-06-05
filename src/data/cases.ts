@@ -8,11 +8,9 @@
 // tables don't exist yet; this file is the only declaration of those
 // shapes until they do.
 
-import type { CaseStatus, CaseType } from '@/db/db';
+import type { CaseStatus, CaseType, SourceKind, SourceStatus } from '@/db/db';
 
-export type { CaseStatus, CaseType };
-
-export type SourceKind = 'whatsapp' | 'email' | 'file' | 'note' | 'scan';
+export type { CaseStatus, CaseType, SourceKind, SourceStatus };
 
 export type GenerationStatus = 'running' | 'complete' | 'failed';
 
@@ -36,7 +34,7 @@ export interface Source {
   // Source-kind-specific extras. Loose typing here matches what the DB
   // jsonb column will hold; renderers narrow as needed.
   metadata?: Record<string, string | undefined>;
-  status: 'queued' | 'processing' | 'ready' | 'failed';
+  status: SourceStatus;
   aiSummary?: string;
 }
 

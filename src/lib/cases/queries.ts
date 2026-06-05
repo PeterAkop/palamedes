@@ -1,8 +1,14 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { cases, clients, db } from '@/db/db';
-import type { Case as ViewCase, Client as ViewClient, SidebarItem } from '@/data/cases';
+import type {
+  Case as ViewCase,
+  Client as ViewClient,
+  SidebarItem,
+  Source as ViewSource,
+} from '@/data/cases';
 import type { CaseStatus, CaseType } from '@/data/cases';
 import { getCurrentUserId } from '@/lib/auth';
+import { listSourcesForCase } from '@/lib/sources/queries';
 
 // Queries for cases / clients. All scoped to the current owner —
 // every row in the DB carries owner_id, and these helpers add the
@@ -53,7 +59,11 @@ export async function getCaseById(id: string): Promise<ViewCase | undefined> {
     .limit(1);
   const row = rows[0];
   if (!row) return undefined;
-  return toViewCase(row);
+  // Sources land via the dedicated sources query — ownership is
+  // re-checked there for defense in depth (even though we just
+  // verified it for this case row).
+  const sourcesList = await listSourcesForCase(id);
+  return toViewCase(row, sourcesList);
 }
 
 export async function getClientById(id: string): Promise<ViewClient | undefined> {
@@ -70,7 +80,7 @@ export async function getClientById(id: string): Promise<ViewClient | undefined>
 
 // --- Mappers --------------------------------------------------------------
 
-function toViewCase(row: typeof cases.$inferSelect): ViewCase {
+function toViewCase(row: typeof cases.$inferSelect, sourcesList: ViewSource[]): ViewCase {
   return {
     id: row.id,
     clientId: row.clientId,
@@ -84,9 +94,9 @@ function toViewCase(row: typeof cases.$inferSelect): ViewCase {
     summary: row.summary ?? undefined,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    // Sources + generations don't have tables yet. Empty arrays here
-    // are what the UI components expect; their empty states render.
-    sources: [],
+    sources: sourcesList,
+    // Generations don't have tables yet — empty array; the Tools tab
+    // empty-state branch renders. Drops in the next phase (feat/tools).
     generations: [],
   };
 }

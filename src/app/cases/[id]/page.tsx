@@ -4,6 +4,15 @@ import CaseTabs from '@/components/cases/CaseTabs';
 import { CASE_STATUS_LABEL, CASE_TYPE_LABEL } from '@/data/cases';
 import { getCaseById, getClientById } from '@/lib/cases/queries';
 
+// Force-dynamic at the page level too. The parent layout sets the
+// same flag, but route segment config doesn't cascade — without
+// this, Next's dev server caches the rendered HTML by URL and new
+// sources added via POST /api/sources/notes don't appear until the
+// cache TTL expires. We rely on `router.refresh()` from the client
+// to re-render after mutations, which only works when the page
+// itself is dynamic.
+export const dynamic = 'force-dynamic';
+
 interface Props {
   params: { id: string };
 }
