@@ -14,27 +14,28 @@ hand-write in ChatGPT.
 ```bash
 npm install
 
-# .env.local — required vars:
-cat > .env.local <<'EOF'
-ANTHROPIC_API_KEY=sk-ant-...     # console.anthropic.com (not a Claude Pro sub)
-BASIC_USER=admin                 # HTTP Basic Auth fence — pick anything
-BASIC_PASS=admin
-EOF
+# .env.local — see .env.example for the full annotated list. At minimum:
+#   ANTHROPIC_API_KEY     — console.anthropic.com (not a Claude Pro sub)
+#   BASIC_USER / BASIC_PASS — HTTP Basic Auth fence (pick anything)
+#   DATABASE_URL          — Neon pooled connection string
+#   DATABASE_URL_UNPOOLED — Neon direct connection (drizzle-kit migrate)
+# Easiest path for the DB: Vercel Storage → Neon → copy both URLs.
 
+npm run db:migrate               # apply Drizzle migrations to Neon
+node scripts/seed-dev.mjs        # seed 3 sample clients + 4 cases (dev only)
 npm run dev                      # http://localhost:3000
 ```
 
 The browser will pop a native auth dialog on first visit — enter the
 `BASIC_USER` / `BASIC_PASS` you set above.
 
-## What's here today
+## Project state
 
-Foundations only — Next 14 App Router, TypeScript, Tailwind + DaisyUI
-(corporate theme), Biome for lint/format, HTTP Basic Auth fence, an
-app shell with the Palamedes header, and a landing page that CTAs
-"Add your first case".
+See [`STATUS.md`](./STATUS.md) for the current snapshot — what's done,
+how the app is meant to work end to end, and what's still to build.
+Updated after each meaningful slice lands.
 
-## What's coming next
+High-level roadmap (kept in STATUS.md too, but the headlines):
 
 | Phase | Scope |
 |---|---|
@@ -46,4 +47,5 @@ Sibling project [`compliance-assistant`](../compliance-assistant) shares
 its pattern library — SWR-driven UI, NDJSON streaming, Vercel Blob
 private uploads, Anthropic Files API for documents.
 
-Stack: Next.js 14 · TypeScript · Tailwind + DaisyUI · `@anthropic-ai/sdk`.
+Stack: Next.js 14 · TypeScript · Tailwind + DaisyUI · Neon + Drizzle ·
+`@anthropic-ai/sdk`.
