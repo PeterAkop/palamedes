@@ -1,7 +1,8 @@
 import { Calendar } from 'lucide-react';
 import { notFound } from 'next/navigation';
 import CaseTabs from '@/components/cases/CaseTabs';
-import { CASE_STATUS_LABEL, CASE_TYPE_LABEL, getCase, getClient } from '@/data/cases';
+import { CASE_STATUS_LABEL, CASE_TYPE_LABEL } from '@/data/cases';
+import { getCaseById, getClientById } from '@/lib/cases/queries';
 
 interface Props {
   params: { id: string };
@@ -15,11 +16,11 @@ function formatDate(value: string): string {
   });
 }
 
-export default function CaseDetailPage({ params }: Props) {
-  const caseData = getCase(params.id);
+export default async function CaseDetailPage({ params }: Props) {
+  const caseData = await getCaseById(params.id);
   if (!caseData) notFound();
 
-  const client = getClient(caseData.clientId);
+  const client = await getClientById(caseData.clientId);
   const clientLabel = client ? `${client.firstName} ${client.lastName}` : 'Unknown client';
 
   return (

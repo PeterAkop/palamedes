@@ -1,18 +1,20 @@
 import CaseSidebar from '@/components/cases/CaseSidebar';
-import { buildSidebarItems } from '@/data/cases';
+import { listSidebarItems } from '@/lib/cases/queries';
 
 // Render every /cases route on demand rather than statically. The
 // sidebar's URL-state hook (useSearchParams) can't run at build time
 // without a Suspense boundary, and there's nothing to prerender behind
-// the auth fence anyway.
+// the auth fence anyway. With the DB read here, force-dynamic also
+// stops Next from trying to evaluate this at build time when
+// DATABASE_URL might not be present.
 export const dynamic = 'force-dynamic';
 
 // Sidebar layout for everything under /cases. The sidebar's collapsed
 // state is tracked client-side in the URL (?sidebar=hidden); we render
 // both sides unconditionally and let CSS/JS handle the visual collapse
 // so the URL is the single source of truth.
-export default function CasesLayout({ children }: { children: React.ReactNode }) {
-  const sidebarItems = buildSidebarItems();
+export default async function CasesLayout({ children }: { children: React.ReactNode }) {
+  const sidebarItems = await listSidebarItems();
   return (
     <div className="container mx-auto px-4 py-6">
       <div className="flex gap-6 items-start">
