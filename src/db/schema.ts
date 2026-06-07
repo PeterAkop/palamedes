@@ -20,8 +20,7 @@ import {
 // `getCurrentUserId()` in src/lib/auth.ts (Phase A.1 single-tester
 // POC behind the HTTP Basic fence).
 //
-// Future tables: generations, generation_messages. Each lands with
-// its own phase.
+// Tables: clients, cases, sources, generations, generation_messages.
 
 // --- Clients --------------------------------------------------------------
 
