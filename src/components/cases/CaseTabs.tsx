@@ -26,6 +26,7 @@ import {
 } from '@/data/cases';
 import AddNoteButton from './AddNoteButton';
 import PasteButton from './PasteButton';
+import SourceActions from './SourceActions';
 import UploadButton from './UploadButton';
 
 type TabId = 'overview' | 'sources' | 'tools';
@@ -254,13 +255,21 @@ function SourceRow({ source }: { source: Source }) {
         <Icon className="h-4 w-4 shrink-0 text-base-content/50" />
         <span className="font-medium truncate min-w-0 flex-1">{source.title}</span>
         <SourceStatusBadge status={source.status} />
-        <span className="text-xs text-base-content/60 shrink-0 ml-auto pr-2 whitespace-nowrap">
+        <span className="text-xs text-base-content/60 shrink-0 ml-auto whitespace-nowrap">
           {SOURCE_KIND_LABEL[source.kind]}
           {source.sourceReceivedAt && ` · ${formatShortDate(source.sourceReceivedAt)}`}
         </span>
+        <SourceActions sourceId={source.id} status={source.status} />
       </summary>
       <div className="collapse-content !pb-3 space-y-2 text-sm">
         <SourceMeta metadata={source.metadata} />
+        {source.status === 'failed' && source.errorMessage && (
+          <div className="alert alert-error text-xs py-2">
+            <span>
+              Summary failed: {source.errorMessage}. Use the retry button above to try again.
+            </span>
+          </div>
+        )}
         {source.contentPreview && (
           <p className="text-base-content/70 italic line-clamp-3">{source.contentPreview}</p>
         )}

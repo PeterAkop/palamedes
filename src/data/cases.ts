@@ -36,6 +36,9 @@ export interface Source {
   metadata?: Record<string, string | undefined>;
   status: SourceStatus;
   aiSummary?: string;
+  // Populated only when status === 'failed'. Surfaced in the source
+  // card so the lawyer can see why processing failed before retrying.
+  errorMessage?: string;
 }
 
 export interface GenerationMessage {

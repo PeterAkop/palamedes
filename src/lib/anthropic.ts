@@ -19,15 +19,15 @@ export const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-// Model IDs centralised here so when we move (Haiku 4.6, Opus 4.8,
+// Model IDs centralised here so when we move (Haiku 4.6, Opus 4.9,
 // …) we update one place, not every call site. The values match the
 // current Claude family — Haiku 4.5 for cheap-and-fast summaries
-// across many sources, Opus 4.7 for the marquee tool-generation
-// drafts. See https://docs.claude.com → model overview for context
-// windows + pricing.
+// across many sources, Opus 4.8 (latest, most capable) for the
+// marquee tool-generation drafts. See https://docs.claude.com →
+// model overview for context windows + pricing.
 export const MODELS = {
   haiku: 'claude-haiku-4-5',
-  opus: 'claude-opus-4-7',
+  opus: 'claude-opus-4-8',
 } as const;
 
 export type ModelKey = keyof typeof MODELS;
