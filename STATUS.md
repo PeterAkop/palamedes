@@ -5,7 +5,7 @@ and what's still to build. Update this whenever a meaningful slice
 lands; reviewers should be able to read this in 5 minutes and know what
 they're walking into.
 
-_Last updated: 2026-06-07 — `feat/sources-files`: file upload (Vercel Blob + Anthropic Files API + Haiku file summaries) landed; paste email / WhatsApp ingestion added._
+_Last updated: 2026-06-07 — **Phase A.1 feature-complete.** `feat/sources-files`: file upload, paste email/WhatsApp, per-source delete/retry, AI case-summary rollup, and New-case creation. `feat/tools`: generations schema + the Tools tab (Opus 4.8 drafts with chat-on-generation streaming). Two migrations (0002, 0003) await `drizzle-kit migrate`._
 
 ---
 
@@ -137,6 +137,48 @@ _Last updated: 2026-06-07 — `feat/sources-files`: file upload (Vercel Blob + A
   WhatsApp) with metadata + `source_received_at`, so the Sources tab
   shows the email/WhatsApp kinds and metadata on first load.
 
+### Phase A.1 fifth slice — source lifecycle + case summary + New case (`feat/sources-files`)
+
+- **Per-source delete + retry.** `DELETE /api/sources/[id]` (owner-scoped)
+  and `POST /api/sources/[id]/retry` (re-runs the Haiku summary,
+  dispatching by kind via `summarizeSource` in
+  `src/lib/sources/process.ts`). `SourceActions.tsx` adds the buttons to
+  each source row; `error_message` is shown on failed rows. (Blob /
+  Anthropic-file cleanup on delete is deferred — TODO in the route.)
+- **AI case summary.** New `ai_summary` / `ai_summary_model` /
+  `ai_summary_generated_at` columns on `cases` (**migration 0002**),
+  separate from the lawyer-authored `summary`. `summarizeCase` (Haiku,
+  cacheable system prefix) rolls up the per-source summaries;
+  `POST /api/cases/[id]/summary` writes them; the Overview "Regenerate"
+  button (`RegenerateSummaryButton.tsx`) is now live.
+- **New case (+ inline client).** `POST /api/cases` takes either an
+  existing `clientId` or a `newClient` object (created inline, sequential
+  writes — Neon HTTP has no interactive tx). `NewCaseButton.tsx` (modal
+  with existing/new-client toggle) replaces the disabled sidebar "New"
+  button; the layout passes the client list.
+- **Opus bumped to 4.8.** `MODELS.opus = 'claude-opus-4-8'`.
+
+### Phase A.1 sixth slice — Tools tab (`feat/tools`)
+
+- **generations schema.** `generations` + `generation_messages` tables
+  (**migration 0003**) with `GENERATION_STATUSES` /`GENERATION_ROLES`
+  tuples + CHECK constraints, cascade FKs case→generation→message.
+  `listGenerationsForCase` populates the previously-stubbed
+  `generations` array in the case view-model.
+- **Tool registry.** `src/lib/tools/registry.ts` — two tools (Client
+  Care Letter, Cover Letter — Spouse Visa) with system prompts +
+  `buildUserPrompt`. `src/lib/tools/context.ts` assembles the Opus
+  input (AI case summary + selected source summaries).
+- **Streaming drafts.** `POST /api/generations` inserts a generation +
+  initial user message, then streams an Opus 4.8 draft as **NDJSON**
+  (adaptive thinking, effort high, `max_tokens` 64K) via the shared
+  `streamGeneration` helper, persisting the assistant turn + flipping
+  status on completion. `POST /api/generations/[id]/messages` is the
+  chat-on-generation refine path — re-streams with the full thread.
+- **UI.** `ToolRunner.tsx` — per-tool modal: source picker + optional
+  instructions → streamed draft → refine-by-chat. Replaces the disabled
+  Generate/New-run buttons in the Tools tab.
+
 ---
 
 ## 2. How the app should work
@@ -155,7 +197,7 @@ have multiple), they:
    the background. The case as a whole gets a **case summary** rolled
    up across sources.
 3. **Generate documents.** Pick a tool (e.g. _Cover Letter — ILR_) and
-   **Opus 4.7** drafts it using the case summary + selected sources as
+   **Opus 4.8** drafts it using the case summary + selected sources as
    context. The lawyer can chat with the model to refine the draft.
 4. **Review, edit, sign, file.** The AI never sends anything to the
    Home Office or the client; it produces drafts the solicitor signs
@@ -180,17 +222,28 @@ multi-tenancy.
 | `src/middleware.ts` | HTTP Basic Auth fence (fail-closed on missing env). |
 | `src/lib/auth.ts` | `getCurrentUserId()` — fence stand-in until real auth. |
 | `src/app/` | Routes. `cases/layout.tsx` owns the sidebar; `cases/[id]/page.tsx` the detail view. |
-| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`, `PasteButton`. Client components for URL-state interactions and source ingestion. |
+| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`, `PasteButton`, `SourceActions`, `RegenerateSummaryButton`, `NewCaseButton`, `ToolRunner`. Client components for URL-state, source ingestion, summaries, case creation, and tool runs. |
 | `src/components/layout/Header.tsx` | Palamedes top bar. |
 | `src/data/cases.ts` | View-model types + display labels (`CASE_TYPE_LABEL` etc.). _No data here any more_ — name is historical. |
 | `src/lib/cases/queries.ts` | Owner-scoped case + client queries, plus the view-model mapper that calls into `sources/queries.ts`. |
 | `src/lib/sources/queries.ts` | Owner-scoped `listSourcesForCase` + DB→view mapper. |
-| `src/lib/sources/summarize.ts` | `summarizeNote` + `summarizeFile` + `summarizePastedMessage` — Haiku 4.5 calls with the UK-immigration system prompts. |
+| `src/lib/sources/summarize.ts` | `summarizeNote` / `summarizeFile` / `summarizePastedMessage` / `summarizeCase` — Haiku 4.5 calls with the UK-immigration system prompts. |
+| `src/lib/sources/process.ts` | `summarizeSource(row)` — re-summarize dispatch by kind, used by the retry route. |
+| `src/lib/generations/queries.ts` | Owner-scoped `listGenerationsForCase` (+ message threads) → view-model. |
+| `src/lib/tools/registry.ts` | In-code tool registry (id/label/system prompt/`buildUserPrompt`). |
+| `src/lib/tools/context.ts` | `buildToolContext` — assembles Opus input from case + selected source summaries. |
+| `src/lib/tools/stream.ts` | `streamGeneration` — shared Opus 4.8 NDJSON streamer; persists the turn + status. |
 | `src/lib/anthropic.ts` | Shared Anthropic SDK client + `MODELS` table. Server-only. |
 | `src/lib/blob.ts` | Vercel Blob wrapper (`uploadSourceFile`). Server-only. |
 | `src/app/api/sources/notes/route.ts` | `POST` handler for note creation (Zod validation, ownership check, Haiku call). |
 | `src/app/api/sources/upload/route.ts` | `POST` multipart handler — Blob + Files API + Haiku summary. |
 | `src/app/api/sources/paste/route.ts` | `POST` handler for pasted email / WhatsApp (Zod, ownership check, metadata, Haiku call). |
+| `src/app/api/sources/[id]/route.ts` | `DELETE` a source (owner-scoped). |
+| `src/app/api/sources/[id]/retry/route.ts` | `POST` — re-run the Haiku summary for a source. |
+| `src/app/api/cases/route.ts` | `POST` — create a case (+ inline client). |
+| `src/app/api/cases/[id]/summary/route.ts` | `POST` — regenerate the AI case summary (Haiku rollup). |
+| `src/app/api/generations/route.ts` | `POST` — run a tool; streams an Opus 4.8 draft as NDJSON. |
+| `src/app/api/generations/[id]/messages/route.ts` | `POST` — chat-on-generation refine; re-streams with the thread. |
 | `src/db/schema.ts` | Drizzle tables (`clients`, `cases`, `sources`), const tuples for enums, CHECK constraints. |
 | `src/db/db.ts` | Drizzle client over Neon HTTP. Re-exports `schema`. |
 | `src/db/migrations/` | Generated SQL (one file per migration) + meta. |
@@ -203,7 +256,7 @@ multi-tenancy.
 - **Frontend:** Next 14 App Router · React 18 · TypeScript · Tailwind + DaisyUI (corporate theme) · Lucide icons.
 - **State / network:** Server components for most pages; SWR + NDJSON streaming for chat-on-generation (when it lands).
 - **DB:** Neon Postgres · Drizzle ORM · `@neondatabase/serverless` HTTP driver.
-- **AI:** `@anthropic-ai/sdk` · Haiku 4.5 (summaries) · Opus 4.7 (tool drafts).
+- **AI:** `@anthropic-ai/sdk` · Haiku 4.5 (summaries) · Opus 4.8 (tool drafts).
 - **Files:** Vercel Blob (private) for uploads · Anthropic Files API for Claude inputs.
 - **Tooling:** Biome (lint + format) · `drizzle-kit` (generate/migrate/studio) · Zod (input validation).
 
@@ -305,45 +358,42 @@ clients ─┐
 Deleting a client cascades through cases → sources. There are no
 `ON UPDATE` rules; primary keys are immutable UUIDs.
 
-#### Tables not in the DB yet
+#### `generations` + `generation_messages`
 
-- `generations` + `generation_messages` — for the Tools tab (Opus 4.7
-  drafts + chat-on-generation refinement). Each tool run is a
-  `generation`; each refinement turn is a `generation_message`. Land
-  on the `feat/tools` branch.
-- AI case-summary columns on `cases` (rolled up across sources) —
-  land with the case-summary slice. Likely `ai_summary` +
-  `ai_summary_model` + `ai_summary_generated_at` alongside the
-  existing lawyer-authored `summary`.
+For the Tools tab (Opus 4.8 drafts + chat-on-generation). Each tool run
+is a `generation` (`tool_id` references the in-code registry, `version`
+is per-(case, tool), `status` ∈ `running|complete|failed`, `model`);
+each turn is a `generation_message` (`role` ∈ `user|assistant`,
+`content`). Cascade FKs: `cases` → `generations` → `generation_messages`.
+Migration 0003.
+
+Also on `cases` (migration 0002): `ai_summary` / `ai_summary_model` /
+`ai_summary_generated_at` — the AI case summary, alongside the
+lawyer-authored `summary`.
 
 ---
 
 ## 3. What's outstanding
 
-### Phase A.1 remaining — tools
+### Phase A.1 — done
 
-- **Per-source delete + retry.** Source row exposes
-  `error_message` when `status='failed'`; we need a UI affordance
-  to retry the summary, plus delete.
-- **Case summary** rolled up from source summaries (Haiku or Opus,
-  TBD). Stored on `cases` (extends current `summary` column or adds
-  `ai_summary` alongside the lawyer-authored one — decision pending).
-  Where prompt caching first earns its keep — the case context will
-  cross Haiku's 4K cacheable minimum.
-- **`generations` + `generation_messages` tables (`feat/tools`).**
-  For the Tools tab. Each tool run is a generation; refinement chat
-  appends messages.
-- **First two tools** (Client Care Letter, Spouse Visa Cover Letter).
-  Static registry in code; later moves to `src/lib/tools/`. Inputs are
-  the case summary + selected source summaries. Opus 4.7.
-- **Chat-on-generation.** NDJSON streaming response + SWR mutation on
-  the client.
-- **Collapsible sidebar.** URL-state hook is already wired
-  (`?sidebar=hidden`); the visual collapse is in place. Confirm it
-  survives the migration to DB-backed sidebar items.
-- **"New case" button** (currently `disabled` in `CaseSidebar`).
-- **"Add note", "Upload", and "Paste email / WhatsApp"** are all
-  live in the Sources tab.
+Phase A.1 is feature-complete: DB-backed cases, the full source
+lifecycle (note / upload / paste ingestion + delete + retry), AI case
+summaries, case creation, and the Tools tab (Opus 4.8 drafts with
+chat-on-generation). Remaining A.1 polish, none blocking:
+
+- **Apply migrations 0002 + 0003** to Neon (`npx drizzle-kit migrate`)
+  and run the dev verification pass end to end against a live
+  `ANTHROPIC_API_KEY`.
+- **Retry fidelity for text sources.** Retry re-summarizes from the
+  stored `content_preview` (300 chars), not the full body — a
+  `raw_content` column would make note/paste retries exact.
+- **Past-generation viewer.** The Tools tab lists past runs (version +
+  status) but `ToolRunner` only drives a fresh run + in-session refine;
+  re-opening a past generation read-only needs a `GET` route.
+- **More tools** beyond the first two; move the registry to a richer
+  structure as it grows.
+- **Collapsible sidebar** (`?sidebar=hidden`) confirmed working.
 
 ### Phase A.2 — inbound channels
 

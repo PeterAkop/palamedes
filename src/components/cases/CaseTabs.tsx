@@ -9,7 +9,6 @@ import {
   Mail,
   MessageCircle,
   NotebookPen,
-  Plus,
   Scan,
   Sparkles,
   Wrench,
@@ -24,10 +23,12 @@ import {
   type Source,
   type SourceKind,
 } from '@/data/cases';
+import { TOOLS } from '@/lib/tools/registry';
 import AddNoteButton from './AddNoteButton';
 import PasteButton from './PasteButton';
 import RegenerateSummaryButton from './RegenerateSummaryButton';
 import SourceActions from './SourceActions';
+import ToolRunner from './ToolRunner';
 import UploadButton from './UploadButton';
 
 type TabId = 'overview' | 'sources' | 'tools';
@@ -357,38 +358,9 @@ function formatShortDate(iso: string): string {
 
 // --- Tools tab ------------------------------------------------------------
 
-// Hardcoded tool registry for the UI pass. When the real registry lands
-// in lib/tools/, this gets replaced with an import + map.
-const TOOL_STUB = [
-  {
-    id: 'client-care-letter',
-    label: 'Client Care Letter',
-    description: 'SRA-compliant client care letter for new instructions.',
-    category: 'Onboarding',
-  },
-  {
-    id: 'cover-letter-spouse-visa',
-    label: 'Cover Letter — Spouse Visa',
-    description: 'Cover letter for a spouse visa application bundle.',
-    category: 'Cover letters',
-  },
-  {
-    id: 'cover-letter-ilr',
-    label: 'Cover Letter — ILR',
-    description: 'Cover letter for an Indefinite Leave to Remain application.',
-    category: 'Cover letters',
-  },
-  {
-    id: 'appeal-grounds',
-    label: 'Grounds of Appeal',
-    description: 'First-tier Tribunal appeal grounds document.',
-    category: 'Appeals',
-  },
-] as const;
-
 function ToolsTab({ caseData }: { caseData: Case }) {
   // Group tools by category for a tidier list as the registry grows.
-  const grouped = TOOL_STUB.reduce<Record<string, (typeof TOOL_STUB)[number][]>>((acc, t) => {
+  const grouped = TOOLS.reduce<Record<string, typeof TOOLS>>((acc, t) => {
     const bucket = acc[t.category] ?? [];
     bucket.push(t);
     acc[t.category] = bucket;
@@ -401,6 +373,11 @@ function ToolsTab({ caseData }: { caseData: Case }) {
     const prev = latestByTool.get(g.toolId);
     if (!prev || g.version > prev.version) latestByTool.set(g.toolId, g);
   }
+
+  // Ready sources are the selectable context for a generation.
+  const readySources = caseData.sources
+    .filter((s) => s.status === 'ready')
+    .map((s) => ({ id: s.id, title: s.title, kind: s.kind }));
 
   return (
     <div className="card bg-base-100 border border-base-300">
@@ -433,10 +410,13 @@ function ToolsTab({ caseData }: { caseData: Case }) {
                         </p>
                       )}
                     </div>
-                    <button type="button" className="btn btn-sm btn-primary gap-1" disabled>
-                      <Plus className="h-3 w-3" />
-                      {latest ? 'New run' : 'Generate'}
-                    </button>
+                    <ToolRunner
+                      caseId={caseData.id}
+                      toolId={t.id}
+                      toolLabel={t.label}
+                      hasRun={Boolean(latest)}
+                      sources={readySources}
+                    />
                   </div>
                 );
               })}
@@ -445,8 +425,8 @@ function ToolsTab({ caseData }: { caseData: Case }) {
         ))}
 
         <p className="text-xs text-base-content/50 mt-4">
-          Tools wired to Opus + chat-on-generation come in the next branch. This view shows the
-          registry and any past runs.
+          Each tool drafts with Opus from the case summary and selected sources; refine the draft by
+          chat in the run dialog.
         </p>
       </div>
     </div>

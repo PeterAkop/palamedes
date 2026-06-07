@@ -1,5 +1,15 @@
 import { sql } from 'drizzle-orm';
-import { check, date, index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  check,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 // Palamedes DB schema.
 //
@@ -10,8 +20,7 @@ import { check, date, index, jsonb, pgTable, text, timestamp, uuid } from 'drizz
 // `getCurrentUserId()` in src/lib/auth.ts (Phase A.1 single-tester
 // POC behind the HTTP Basic fence).
 //
-// Future tables: generations, generation_messages. Each lands with
-// its own phase.
+// Tables: clients, cases, sources, generations, generation_messages.
 
 // --- Clients --------------------------------------------------------------
 
@@ -197,6 +206,72 @@ export const sources = pgTable(
 export type Source = typeof sources.$inferSelect;
 export type NewSource = typeof sources.$inferInsert;
 
+// --- Generations ----------------------------------------------------------
+
+// A `generation` is one run of a Tool (e.g. "Cover Letter — Spouse
+// Visa") against a case: Opus drafts a document from the case summary +
+// selected sources. `generation_messages` is the chat-on-generation
+// thread — the initial draft request, the assistant's draft, and any
+// refinement turns.
+
+export const GENERATION_STATUSES = ['running', 'complete', 'failed'] as const;
+export type GenerationStatus = (typeof GENERATION_STATUSES)[number];
+
+export const GENERATION_ROLES = ['user', 'assistant'] as const;
+export type GenerationRole = (typeof GENERATION_ROLES)[number];
+
+export const generations = pgTable(
+  'generations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    caseId: uuid('case_id')
+      .notNull()
+      .references(() => cases.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id').notNull(),
+
+    // Which tool produced this run — matches an id in the in-code tool
+    // registry (src/lib/tools/registry.ts), not a DB-enforced enum, so
+    // the registry can evolve without a migration.
+    toolId: text('tool_id').notNull(),
+    // Per-(case, tool) run number, surfaced as "v1", "v2" in the UI.
+    version: integer('version').notNull().default(1),
+    status: text('status').notNull().default('running'),
+    // The model that produced the draft (e.g. claude-opus-4-8).
+    model: text('model').notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('generations_case_id_idx').on(t.caseId),
+    index('generations_owner_id_idx').on(t.ownerId),
+    check('generations_status_check', sql`${t.status} IN ('running','complete','failed')`),
+  ],
+);
+
+export type Generation = typeof generations.$inferSelect;
+export type NewGeneration = typeof generations.$inferInsert;
+
+export const generationMessages = pgTable(
+  'generation_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    generationId: uuid('generation_id')
+      .notNull()
+      .references(() => generations.id, { onDelete: 'cascade' }),
+    role: text('role').notNull(),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('generation_messages_generation_id_idx').on(t.generationId),
+    check('generation_messages_role_check', sql`${t.role} IN ('user','assistant')`),
+  ],
+);
+
+export type GenerationMessage = typeof generationMessages.$inferSelect;
+export type NewGenerationMessage = typeof generationMessages.$inferInsert;
+
 // --- Re-export combined for convenience in `db.ts`. -----------------------
 
-export const tables = { clients, cases, sources };
+export const tables = { clients, cases, sources, generations, generationMessages };
