@@ -5,7 +5,7 @@ and what's still to build. Update this whenever a meaningful slice
 lands; reviewers should be able to read this in 5 minutes and know what
 they're walking into.
 
-_Last updated: 2026-06-05 — after `feat/sources` slice 1 (sources table + note ingestion + Haiku summaries)._
+_Last updated: 2026-06-07 — schema reference section added. Most recent code slice: `feat/sources` slice 1 (2026-06-05) — sources table + note ingestion + Haiku summaries._
 
 ---
 
@@ -148,6 +148,115 @@ multi-tenancy.
 - **AI:** `@anthropic-ai/sdk` · Haiku 4.5 (summaries) · Opus 4.7 (tool drafts).
 - **Files:** Vercel Blob (private) for uploads · Anthropic Files API for Claude inputs.
 - **Tooling:** Biome (lint + format) · `drizzle-kit` (generate/migrate/studio) · Zod (input validation).
+
+### Database schema
+
+Three tables today: `clients`, `cases`, `sources`. Authoritative source
+is `src/db/schema.ts` (Drizzle); the listing below mirrors it so the
+shape is reviewable without leaving this doc.
+
+**Shared conventions across all tables:**
+
+- `id uuid PRIMARY KEY DEFAULT gen_random_uuid()` — every row.
+- `owner_id text NOT NULL` — every row. `text` (not `uuid`) so it
+  fits any future auth provider's user-id format without a column-
+  type migration. Today every row carries `'fence-user'` from
+  `getCurrentUserId()` in `src/lib/auth.ts`.
+- `created_at` + `updated_at` — `timestamp with time zone NOT NULL
+  DEFAULT now()`. Application code updates `updated_at` explicitly
+  on mutating writes (no DB trigger today).
+- Drizzle infers `$inferSelect` / `$inferInsert` types — re-exported
+  as `Client` / `NewClient`, `Case` / `NewCase`, `Source` / `NewSource`
+  from `@/db/db` so the rest of the app imports from one place.
+
+#### `clients`
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | — | PK, default `gen_random_uuid()` |
+| `owner_id` | text | NOT NULL | indexed |
+| `first_name` | text | NOT NULL | |
+| `last_name` | text | NOT NULL | |
+| `email` | text | NULL | |
+| `phone` | text | NULL | |
+| `date_of_birth` | date | NULL | |
+| `nationality` | text | NULL | |
+| `preferred_language` | text | NULL | |
+| `notes` | text | NULL | free-form lawyer notes on the client |
+| `created_at`, `updated_at` | timestamptz | NOT NULL | default `now()` |
+
+Indexes: `clients_owner_id_idx (owner_id)`.
+
+#### `cases`
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | — | PK, default `gen_random_uuid()` |
+| `client_id` | uuid | NOT NULL | FK → `clients(id)` ON DELETE CASCADE |
+| `owner_id` | text | NOT NULL | indexed |
+| `title` | text | NOT NULL | |
+| `case_type` | text | NOT NULL | CHECK against `CASE_TYPES` |
+| `status` | text | NOT NULL | CHECK against `CASE_STATUSES`, default `'open'` |
+| `home_office_reference` | text | NULL | e.g. `IHS-2026-…`, `GWF-…`, `IA/…` |
+| `deadline` | date | NULL | |
+| `summary` | text | NULL | lawyer-authored; AI-generated case summary lands in its own column later |
+| `created_at`, `updated_at` | timestamptz | NOT NULL | default `now()` |
+
+Indexes: `cases_client_id_idx (client_id)`, `cases_owner_id_idx (owner_id)`.
+
+CHECK constraints (enforced at the DB level alongside Drizzle's TS unions):
+
+- `CASE_TYPES` = `spouse-visa`, `family-visa`, `ilr`, `naturalisation`, `work-visa`, `study-visa`, `eu-settlement`, `extension`, `appeal`, `asylum`, `sponsorship`, `other`.
+- `CASE_STATUSES` = `open`, `in_progress`, `submitted`, `granted`, `refused`, `on_hold`, `closed`.
+
+#### `sources`
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | — | PK, default `gen_random_uuid()` |
+| `case_id` | uuid | NOT NULL | FK → `cases(id)` ON DELETE CASCADE |
+| `owner_id` | text | NOT NULL | indexed |
+| `kind` | text | NOT NULL | CHECK against `SOURCE_KINDS` |
+| `title` | text | NOT NULL | shown on the source card |
+| `content_preview` | text | NULL | leading chars for collapsed cards; null for files |
+| `source_received_at` | timestamptz | NULL | email/message date or file mtime; distinct from `created_at` |
+| `metadata` | jsonb | NULL | kind-specific (`from`/`subject`, `from_phone`, `mime_type`/`size_bytes`, …) |
+| `status` | text | NOT NULL | CHECK against `SOURCE_STATUSES`, default `'queued'`, indexed |
+| `error_message` | text | NULL | populated only when `status='failed'` |
+| `ai_summary` | text | NULL | Haiku output |
+| `ai_summary_model` | text | NULL | which model produced it (e.g. `claude-haiku-4-5-20251001`, `'seed'` for fixtures) |
+| `blob_path` | text | NULL | Vercel Blob URL (file/scan kinds, slice 2) |
+| `anthropic_file_id` | text | NULL | Anthropic Files API id (file/scan kinds, slice 2) |
+| `created_at`, `updated_at` | timestamptz | NOT NULL | default `now()` |
+
+Indexes: `sources_case_id_idx (case_id)`, `sources_owner_id_idx (owner_id)`, `sources_status_idx (status)`. The status index is cheap and ready for the future "find all `queued` sources to process" worker.
+
+CHECK constraints:
+
+- `SOURCE_KINDS` = `whatsapp`, `email`, `file`, `note`, `scan`.
+- `SOURCE_STATUSES` = `queued`, `processing`, `ready`, `failed`.
+
+#### Foreign keys at a glance
+
+```
+clients ─┐
+         └─ cases.client_id  (ON DELETE CASCADE)
+                  └─ sources.case_id  (ON DELETE CASCADE)
+```
+
+Deleting a client cascades through cases → sources. There are no
+`ON UPDATE` rules; primary keys are immutable UUIDs.
+
+#### Tables not in the DB yet
+
+- `generations` + `generation_messages` — for the Tools tab (Opus 4.7
+  drafts + chat-on-generation refinement). Each tool run is a
+  `generation`; each refinement turn is a `generation_message`. Land
+  on the `feat/tools` branch.
+- AI case-summary columns on `cases` (rolled up across sources) —
+  land with the case-summary slice. Likely `ai_summary` +
+  `ai_summary_model` + `ai_summary_generated_at` alongside the
+  existing lawyer-authored `summary`.
 
 ---
 
