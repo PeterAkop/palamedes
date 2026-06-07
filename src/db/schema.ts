@@ -1,5 +1,14 @@
 import { sql } from 'drizzle-orm';
-import { check, date, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  check,
+  date,
+  index,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 // Palamedes DB schema.
 //
@@ -10,8 +19,8 @@ import { check, date, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/
 // `getCurrentUserId()` in src/lib/auth.ts (Phase A.1 single-tester
 // POC behind the HTTP Basic fence).
 //
-// Future tables: sources, generations, generation_messages. Each
-// lands with its own phase.
+// Future tables: generations, generation_messages. Each lands with
+// its own phase.
 
 // --- Clients --------------------------------------------------------------
 
@@ -108,12 +117,95 @@ export const cases = pgTable(
 export type Case = typeof cases.$inferSelect;
 export type NewCase = typeof cases.$inferInsert;
 
-// --- Source-kind metadata table re-export friendly ------------------------
+// --- Sources --------------------------------------------------------------
 
-// Future tables placeholder for documentation — when sources/
-// generations/generation_messages land, their schema goes below with
-// the same pattern (CHECK constraints on enum-y columns, jsonb for
-// kind-specific fields).
+// SOURCE_KINDS / SOURCE_STATUSES exported as const tuples so the
+// labels module and Zod validators derive allowed values from the
+// same place as the DB CHECK constraint.
 
-// Re-export combined for convenience in `db.ts`.
-export const tables = { clients, cases };
+export const SOURCE_KINDS = ['whatsapp', 'email', 'file', 'note', 'scan'] as const;
+
+// `queued` is the initial state for sources created without inline
+// processing (future: WhatsApp/Outlook webhooks). Today's manual
+// ingestion paths (note, paste, upload) flip to `processing`
+// immediately and to `ready` once Haiku returns. `failed` carries an
+// `error_message` for the lawyer to triage.
+export const SOURCE_STATUSES = ['queued', 'processing', 'ready', 'failed'] as const;
+
+export type SourceKind = (typeof SOURCE_KINDS)[number];
+export type SourceStatus = (typeof SOURCE_STATUSES)[number];
+
+export const sources = pgTable(
+  'sources',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    caseId: uuid('case_id')
+      .notNull()
+      .references(() => cases.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id').notNull(),
+
+    // What kind of source this is + a human-readable title that
+    // shows in the Sources list.
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+
+    // Extracted preview for the collapsed source row card — for
+    // notes / pasted content this is usually the leading chars; for
+    // files it stays null (the file is the content).
+    contentPreview: text('content_preview'),
+
+    // When the source itself was received (email date, WhatsApp
+    // message timestamp, file mod time). Distinct from created_at
+    // which is when it landed in Palamedes.
+    sourceReceivedAt: timestamp('source_received_at', { withTimezone: true }),
+
+    // Kind-specific fields — email `from`/`subject`, WhatsApp
+    // `from_phone`, file `mime_type`/`size_bytes`, etc. Loose schema
+    // by design; renderers narrow as needed.
+    metadata: jsonb('metadata').$type<Record<string, string | undefined>>(),
+
+    // Async processing lifecycle. `error_message` populates only
+    // when status='failed' (Haiku/Anthropic API errors, OCR failures
+    // later, etc.).
+    status: text('status').notNull().default('queued'),
+    errorMessage: text('error_message'),
+
+    // Haiku output. `ai_summary_model` lets us know which model
+    // generated it (`claude-haiku-4-5` today) so we can re-summarize
+    // selectively when models change.
+    aiSummary: text('ai_summary'),
+    aiSummaryModel: text('ai_summary_model'),
+
+    // Storage references — populate only for file/scan kinds.
+    // `blob_path` is the Vercel Blob URL (private); `anthropic_file_id`
+    // is what we pass to the Anthropic Files API for Claude inputs.
+    blobPath: text('blob_path'),
+    anthropicFileId: text('anthropic_file_id'),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('sources_case_id_idx').on(t.caseId),
+    index('sources_owner_id_idx').on(t.ownerId),
+    // Status index is for future background-job queries
+    // ("find all 'queued' sources to process"). Cheap to add now;
+    // a no-op until we add a queue worker.
+    index('sources_status_idx').on(t.status),
+    check(
+      'sources_kind_check',
+      sql`${t.kind} IN ('whatsapp','email','file','note','scan')`,
+    ),
+    check(
+      'sources_status_check',
+      sql`${t.status} IN ('queued','processing','ready','failed')`,
+    ),
+  ],
+);
+
+export type Source = typeof sources.$inferSelect;
+export type NewSource = typeof sources.$inferInsert;
+
+// --- Re-export combined for convenience in `db.ts`. -----------------------
+
+export const tables = { clients, cases, sources };
