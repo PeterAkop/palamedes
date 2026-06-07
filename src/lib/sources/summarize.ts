@@ -194,3 +194,61 @@ export async function summarizePastedMessage(
 
   return { summary, model: response.model };
 }
+
+// --- Case roll-up --------------------------------------------------------
+
+const CASE_SYSTEM_PROMPT = `You are a senior UK immigration solicitor's case assistant. You are given the individual AI summaries of every source on a single case (notes, emails, WhatsApp messages, documents). Synthesise them into one case-level summary the solicitor can read at a glance.
+
+Write 3–6 sentences (≤180 words) that:
+- State what the case is and where it stands overall.
+- Pull together the key facts across sources: names, dates, references, financial figures, deadlines, decisions.
+- Call out outstanding actions, missing evidence, or risks the solicitor should address next.
+
+Do not give legal advice. Do not invent facts not present in the source summaries. If the sources conflict, note the conflict. Output only the summary prose — no headers, no bullets, no preamble like "Case summary:".`;
+
+export interface CaseSourceForSummary {
+  title: string;
+  kind: string;
+  aiSummary: string;
+}
+
+export interface SummarizeCaseInput {
+  caseTitle: string;
+  caseType: string;
+  sources: CaseSourceForSummary[];
+}
+
+export async function summarizeCase(input: SummarizeCaseInput): Promise<SummarizeResult> {
+  if (input.sources.length === 0) {
+    throw new Error('Cannot summarise a case with no ready sources');
+  }
+
+  const sourceBlock = input.sources
+    .map((s, i) => `${i + 1}. [${s.kind}] ${s.title}\n   ${s.aiSummary}`)
+    .join('\n\n');
+
+  const userText = `Case: ${input.caseTitle} (type: ${input.caseType})\n\nSource summaries:\n\n${sourceBlock}`;
+
+  const response = await anthropic.messages.create({
+    model: MODELS.haiku,
+    max_tokens: 512,
+    // The system prompt is the stable prefix; mark it cacheable. It
+    // only actually caches once the rendered prefix crosses Haiku's
+    // 4096-token minimum (large cases) — below that this silently
+    // no-ops, which is fine.
+    system: [{ type: 'text', text: CASE_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }],
+    messages: [{ role: 'user', content: userText }],
+  });
+
+  const summary = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+
+  if (!summary) {
+    throw new Error('Haiku returned an empty case summary');
+  }
+
+  return { summary, model: response.model };
+}

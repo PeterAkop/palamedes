@@ -66,7 +66,12 @@ export interface Case {
   deadline?: string;
   createdAt: string;
   updatedAt: string;
+  // Lawyer-authored case description.
   summary?: string;
+  // AI-generated case summary (rolled up across sources by Haiku) +
+  // when it was last regenerated. Distinct from `summary`.
+  aiSummary?: string;
+  aiSummaryGeneratedAt?: string;
   sources: Source[];
   generations: Generation[];
 }

@@ -1,12 +1,13 @@
 import { and, asc, eq } from 'drizzle-orm';
-import { cases, clients, db } from '@/db/db';
 import type {
+  CaseStatus,
+  CaseType,
+  SidebarItem,
   Case as ViewCase,
   Client as ViewClient,
-  SidebarItem,
   Source as ViewSource,
 } from '@/data/cases';
-import type { CaseStatus, CaseType } from '@/data/cases';
+import { cases, clients, db } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
 import { listSourcesForCase } from '@/lib/sources/queries';
 
@@ -92,6 +93,8 @@ function toViewCase(row: typeof cases.$inferSelect, sourcesList: ViewSource[]): 
     homeOfficeReference: row.homeOfficeReference ?? undefined,
     deadline: row.deadline ?? undefined,
     summary: row.summary ?? undefined,
+    aiSummary: row.aiSummary ?? undefined,
+    aiSummaryGeneratedAt: row.aiSummaryGeneratedAt?.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     sources: sourcesList,

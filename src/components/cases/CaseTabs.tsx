@@ -26,6 +26,7 @@ import {
 } from '@/data/cases';
 import AddNoteButton from './AddNoteButton';
 import PasteButton from './PasteButton';
+import RegenerateSummaryButton from './RegenerateSummaryButton';
 import SourceActions from './SourceActions';
 import UploadButton from './UploadButton';
 
@@ -186,7 +187,7 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
         </div>
       </div>
 
-      {/* Summary card (AI-generated placeholder) */}
+      {/* AI case summary card — rolled up across sources by Haiku. */}
       <div className="card bg-base-100 border border-base-300">
         <div className="card-body">
           <div className="flex items-center justify-between">
@@ -194,17 +195,35 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
               <Sparkles className="h-4 w-4 text-primary" />
               Case summary
             </h2>
-            <button type="button" className="btn btn-sm btn-ghost gap-1" disabled>
-              <Sparkles className="h-3 w-3" />
-              Regenerate
-            </button>
+            <RegenerateSummaryButton
+              caseId={caseData.id}
+              hasSummary={Boolean(caseData.aiSummary)}
+            />
           </div>
-          {caseData.summary ? (
-            <p className="text-base-content/80 leading-relaxed text-sm">{caseData.summary}</p>
+          {caseData.aiSummary ? (
+            <>
+              <p className="text-base-content/80 leading-relaxed text-sm">{caseData.aiSummary}</p>
+              {caseData.aiSummaryGeneratedAt && (
+                <p className="text-xs text-base-content/40 mt-1">
+                  AI-generated · updated {formatShortDate(caseData.aiSummaryGeneratedAt)}
+                </p>
+              )}
+            </>
           ) : (
             <p className="text-base-content/50 italic text-sm">
-              Case summary will appear here once sources have been added and analysed.
+              Case summary will appear here once sources have been added and analysed. Click
+              Generate to roll up the source summaries.
             </p>
+          )}
+
+          {/* Lawyer-authored note, shown separately when present. */}
+          {caseData.summary && (
+            <div className="mt-3 pt-3 border-t border-base-200">
+              <p className="text-xs uppercase tracking-wide text-base-content/50 mb-1">
+                Solicitor note
+              </p>
+              <p className="text-base-content/80 leading-relaxed text-sm">{caseData.summary}</p>
+            </div>
           )}
         </div>
       </div>

@@ -1,14 +1,5 @@
 import { sql } from 'drizzle-orm';
-import {
-  check,
-  date,
-  index,
-  jsonb,
-  pgTable,
-  text,
-  timestamp,
-  uuid,
-} from 'drizzle-orm/pg-core';
+import { check, date, index, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 // Palamedes DB schema.
 //
@@ -93,10 +84,16 @@ export const cases = pgTable(
     status: text('status').notNull().default('open'),
     homeOfficeReference: text('home_office_reference'),
     deadline: date('deadline'),
-    // Manually-authored case description from the lawyer. The
-    // AI-generated *case summary* (across all sources) lives in
-    // separate columns added by the source-AI branch.
+    // Manually-authored case description from the lawyer.
     summary: text('summary'),
+    // AI-generated *case summary* — rolled up across the case's source
+    // summaries by Haiku (POST /api/cases/[id]/summary). Kept separate
+    // from the lawyer-authored `summary` so neither overwrites the
+    // other. `ai_summary_generated_at` lets the UI show when it was
+    // last refreshed; `ai_summary_model` records which model produced it.
+    aiSummary: text('ai_summary'),
+    aiSummaryModel: text('ai_summary_model'),
+    aiSummaryGeneratedAt: timestamp('ai_summary_generated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -192,14 +189,8 @@ export const sources = pgTable(
     // ("find all 'queued' sources to process"). Cheap to add now;
     // a no-op until we add a queue worker.
     index('sources_status_idx').on(t.status),
-    check(
-      'sources_kind_check',
-      sql`${t.kind} IN ('whatsapp','email','file','note','scan')`,
-    ),
-    check(
-      'sources_status_check',
-      sql`${t.status} IN ('queued','processing','ready','failed')`,
-    ),
+    check('sources_kind_check', sql`${t.kind} IN ('whatsapp','email','file','note','scan')`),
+    check('sources_status_check', sql`${t.status} IN ('queued','processing','ready','failed')`),
   ],
 );
 
