@@ -25,6 +25,7 @@ import {
   type SourceKind,
 } from '@/data/cases';
 import AddNoteButton from './AddNoteButton';
+import PasteButton from './PasteButton';
 import UploadButton from './UploadButton';
 
 type TabId = 'overview' | 'sources' | 'tools';
@@ -55,9 +56,7 @@ export default function CaseTabs({ caseData, client }: Props) {
     <div className="space-y-4">
       <Tablist active={activeTab} onChange={setTab} sourceCount={caseData.sources.length} />
       {activeTab === 'overview' && <OverviewTab caseData={caseData} client={client} />}
-      {activeTab === 'sources' && (
-        <SourcesTab caseId={caseData.id} sources={caseData.sources} />
-      )}
+      {activeTab === 'sources' && <SourcesTab caseId={caseData.id} sources={caseData.sources} />}
       {activeTab === 'tools' && <ToolsTab caseData={caseData} />}
     </div>
   );
@@ -225,6 +224,7 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
           </h2>
           <div className="flex items-center gap-2">
             <AddNoteButton caseId={caseId} />
+            <PasteButton caseId={caseId} />
             <UploadButton caseId={caseId} />
           </div>
         </div>
@@ -260,6 +260,7 @@ function SourceRow({ source }: { source: Source }) {
         </span>
       </summary>
       <div className="collapse-content !pb-3 space-y-2 text-sm">
+        <SourceMeta metadata={source.metadata} />
         {source.contentPreview && (
           <p className="text-base-content/70 italic line-clamp-3">{source.contentPreview}</p>
         )}
@@ -277,6 +278,29 @@ function SourceRow({ source }: { source: Source }) {
         )}
       </div>
     </details>
+  );
+}
+
+// Renders the correspondence metadata stored on email / WhatsApp
+// sources (from / subject / from_phone). Files carry mime_type /
+// size_bytes which we don't surface here. Renders nothing when there's
+// no metadata or none of the known keys are present.
+function SourceMeta({ metadata }: { metadata?: Record<string, string | undefined> }) {
+  if (!metadata) return null;
+  const rows: Array<[string, string]> = [];
+  if (metadata.from) rows.push(['From', metadata.from]);
+  if (metadata.subject) rows.push(['Subject', metadata.subject]);
+  if (metadata.from_phone) rows.push(['Phone', metadata.from_phone]);
+  if (rows.length === 0) return null;
+  return (
+    <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs text-base-content/70">
+      {rows.map(([label, value]) => (
+        <div key={label} className="contents">
+          <dt className="text-base-content/50">{label}</dt>
+          <dd className="truncate">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 

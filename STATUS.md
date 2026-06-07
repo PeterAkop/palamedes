@@ -5,7 +5,7 @@ and what's still to build. Update this whenever a meaningful slice
 lands; reviewers should be able to read this in 5 minutes and know what
 they're walking into.
 
-_Last updated: 2026-06-07 — `feat/sources-files` slice 2 in flight (file upload via Vercel Blob + Anthropic Files API + Haiku file summaries)._
+_Last updated: 2026-06-07 — `feat/sources-files`: file upload (Vercel Blob + Anthropic Files API + Haiku file summaries) landed; paste email / WhatsApp ingestion added._
 
 ---
 
@@ -114,6 +114,29 @@ _Last updated: 2026-06-07 — `feat/sources-files` slice 2 in flight (file uploa
   fix is Vercel Blob's client-direct (signed-URL) upload pattern;
   swap when real lawyers hit it.
 
+### Phase A.1 fourth slice — paste email / WhatsApp (`feat/sources-files`)
+
+- **Paste summariser.** `summarizePastedMessage({ kind, title, body,
+  from, subject, fromPhone })` in `src/lib/sources/summarize.ts` —
+  text-only Haiku call sharing `summarizeNote`'s plumbing but with a
+  correspondence-primed system prompt; the sender / subject / phone
+  metadata is threaded into the prompt so the summary can cite it.
+- **Paste route.** `POST /api/sources/paste` (Zod-validated) —
+  `kind` is `email | whatsapp`, body up to 50K chars, optional
+  `from` / `subject` / `fromPhone` / `receivedAt`. Stores
+  kind-specific `metadata` jsonb (`{from, subject}` for email,
+  `{from_phone}` for WhatsApp) and `source_received_at`. Same
+  insert-`processing` → summarise → `ready`/`failed` pattern as
+  notes and uploads.
+- **UI.** `src/components/cases/PasteButton.tsx` — `<dialog>` modal
+  with an email/WhatsApp kind picker that toggles the metadata
+  fields (subject vs from-phone). Wired into the Sources tab beside
+  Add note / Upload. `CaseTabs` now renders the correspondence
+  metadata (from / subject / phone) in each source card.
+- **Seed enriched.** Three pasted-message fixtures (2 email, 1
+  WhatsApp) with metadata + `source_received_at`, so the Sources tab
+  shows the email/WhatsApp kinds and metadata on first load.
+
 ---
 
 ## 2. How the app should work
@@ -157,21 +180,22 @@ multi-tenancy.
 | `src/middleware.ts` | HTTP Basic Auth fence (fail-closed on missing env). |
 | `src/lib/auth.ts` | `getCurrentUserId()` — fence stand-in until real auth. |
 | `src/app/` | Routes. `cases/layout.tsx` owns the sidebar; `cases/[id]/page.tsx` the detail view. |
-| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`. Client components for URL-state interactions and source ingestion. |
+| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`, `PasteButton`. Client components for URL-state interactions and source ingestion. |
 | `src/components/layout/Header.tsx` | Palamedes top bar. |
 | `src/data/cases.ts` | View-model types + display labels (`CASE_TYPE_LABEL` etc.). _No data here any more_ — name is historical. |
 | `src/lib/cases/queries.ts` | Owner-scoped case + client queries, plus the view-model mapper that calls into `sources/queries.ts`. |
 | `src/lib/sources/queries.ts` | Owner-scoped `listSourcesForCase` + DB→view mapper. |
-| `src/lib/sources/summarize.ts` | `summarizeNote` + `summarizeFile` — Haiku 4.5 calls with the UK-immigration system prompts. |
+| `src/lib/sources/summarize.ts` | `summarizeNote` + `summarizeFile` + `summarizePastedMessage` — Haiku 4.5 calls with the UK-immigration system prompts. |
 | `src/lib/anthropic.ts` | Shared Anthropic SDK client + `MODELS` table. Server-only. |
 | `src/lib/blob.ts` | Vercel Blob wrapper (`uploadSourceFile`). Server-only. |
 | `src/app/api/sources/notes/route.ts` | `POST` handler for note creation (Zod validation, ownership check, Haiku call). |
 | `src/app/api/sources/upload/route.ts` | `POST` multipart handler — Blob + Files API + Haiku summary. |
+| `src/app/api/sources/paste/route.ts` | `POST` handler for pasted email / WhatsApp (Zod, ownership check, metadata, Haiku call). |
 | `src/db/schema.ts` | Drizzle tables (`clients`, `cases`, `sources`), const tuples for enums, CHECK constraints. |
 | `src/db/db.ts` | Drizzle client over Neon HTTP. Re-exports `schema`. |
 | `src/db/migrations/` | Generated SQL (one file per migration) + meta. |
 | `drizzle.config.ts` | drizzle-kit config; uses unpooled URL for DDL. |
-| `scripts/seed-dev.mjs` | TRUNCATE-and-reseed dev fixture (3 clients + 4 cases + 7 notes). |
+| `scripts/seed-dev.mjs` | TRUNCATE-and-reseed dev fixture (3 clients + 4 cases + 7 notes + 3 pasted messages). |
 | `scripts/verify-db.mjs` | Post-migration sanity check (lists tables + columns). |
 
 ### Tech stack at a glance
@@ -296,11 +320,8 @@ Deleting a client cascades through cases → sources. There are no
 
 ## 3. What's outstanding
 
-### Phase A.1 remaining — paste, tools
+### Phase A.1 remaining — tools
 
-- **Paste email / WhatsApp (`feat/sources` slice 3).** Modal with
-  kind picker; metadata fields (from/subject/from_phone). Same
-  summarise-on-insert pattern as notes.
 - **Per-source delete + retry.** Source row exposes
   `error_message` when `status='failed'`; we need a UI affordance
   to retry the summary, plus delete.
@@ -321,8 +342,8 @@ Deleting a client cascades through cases → sources. There are no
   (`?sidebar=hidden`); the visual collapse is in place. Confirm it
   survives the migration to DB-backed sidebar items.
 - **"New case" button** (currently `disabled` in `CaseSidebar`).
-- **"Add paste" button** in the Sources tab (lands in slice 3).
-  Both "Add note" and "Upload" are live.
+- **"Add note", "Upload", and "Paste email / WhatsApp"** are all
+  live in the Sources tab.
 
 ### Phase A.2 — inbound channels
 

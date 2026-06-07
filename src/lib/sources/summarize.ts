@@ -6,12 +6,14 @@ import { anthropic, MODELS } from '@/lib/anthropic';
 // in the row's `ai_summary` + `ai_summary_model` columns.
 //
 // One entry point per source kind today:
-//   - summarizeNote   — plain text (slice 1)
-//   - summarizeFile   — files via the Anthropic Files API (slice 2)
+//   - summarizeNote           — plain text (slice 1)
+//   - summarizeFile           — files via the Anthropic Files API (slice 2)
+//   - summarizePastedMessage  — pasted email / WhatsApp (slice 3)
 //
-// summarizePastedMessage (email / WhatsApp) lands with slice 3 and
-// will share most of summarizeNote's plumbing — just a different
-// system prompt that primes Claude for inbound-message context.
+// summarizePastedMessage shares summarizeNote's plumbing — a plain
+// text-only Haiku call — but uses a system prompt that primes Claude
+// for inbound-message context and threads the sender / subject /
+// phone metadata into the prompt so the summary can reference it.
 //
 // Caching: not used today. The note prompts and file prompts are
 // well under Haiku's 4K cacheable minimum, so `cache_control` would
@@ -131,6 +133,63 @@ export async function summarizeFile(input: SummarizeFileInput): Promise<Summariz
 
   if (!summary) {
     throw new Error('Haiku returned an empty file summary');
+  }
+
+  return { summary, model: response.model };
+}
+
+// --- Pasted messages (email / WhatsApp) ----------------------------------
+
+const MESSAGE_SYSTEM_PROMPT = `You are a senior UK immigration solicitor's case assistant. You receive emails and WhatsApp messages pasted in from a live case and summarise each one for the solicitor.
+
+Write a concise summary (1–3 sentences, ≤80 words) capturing:
+- Who the message is from and what they are saying or asking.
+- Any names, dates, references, deadlines, or facts that matter for the case.
+- Any action or reply the solicitor needs to make.
+
+Treat the message as correspondence — the sender may be the client, the Home Office, a third party, or an opponent. Do not give legal advice. Do not speculate beyond what is in the message. If the message is vague or truncated, say so plainly. Output only the summary — no headers, no bullets, no preamble like "Summary:" or "This message...".`;
+
+export interface SummarizePastedMessageInput {
+  // 'email' or 'whatsapp' — drives the header line we prepend so
+  // Claude knows which kind of correspondence it's reading.
+  kind: 'email' | 'whatsapp';
+  title: string;
+  body: string;
+  // Optional correspondence metadata. `from` is the sender label for
+  // both kinds (email address / contact name); `subject` is email-only;
+  // `fromPhone` is WhatsApp-only. All are threaded into the prompt so
+  // the summary can cite them.
+  from?: string;
+  subject?: string;
+  fromPhone?: string;
+}
+
+export async function summarizePastedMessage(
+  input: SummarizePastedMessageInput,
+): Promise<SummarizeResult> {
+  const channel = input.kind === 'email' ? 'Email' : 'WhatsApp message';
+  const headerLines = [`${channel} pasted into the case.`, `Title: ${input.title}`];
+  if (input.from) headerLines.push(`From: ${input.from}`);
+  if (input.subject) headerLines.push(`Subject: ${input.subject}`);
+  if (input.fromPhone) headerLines.push(`From phone: ${input.fromPhone}`);
+
+  const userText = `${headerLines.join('\n')}\n\nContent:\n${input.body}`;
+
+  const response = await anthropic.messages.create({
+    model: MODELS.haiku,
+    max_tokens: 256,
+    system: MESSAGE_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: userText }],
+  });
+
+  const summary = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+
+  if (!summary) {
+    throw new Error('Haiku returned an empty message summary');
   }
 
   return { summary, model: response.model };

@@ -173,6 +173,44 @@ const NOTES = [
   },
 ];
 
+// Sample pasted correspondence — email + WhatsApp sources. These
+// exercise the slice-3 paste path: `kind` of 'email'/'whatsapp',
+// `metadata` carrying from/subject/from_phone, and a
+// `source_received_at` distinct from created_at. `ai_summary` is
+// again pre-computed (`ai_summary_model='seed'`).
+const MESSAGES = [
+  {
+    caseKey: 'patel-ilr',
+    kind: 'email',
+    title: 'Re: Sponsorship letter for ILR',
+    receivedAt: '2026-06-05T09:14:00Z',
+    metadata: { from: 'hr@brightwave-tech.co.uk', subject: 'Re: Sponsorship letter for ILR' },
+    body: "Hi Aarav, please find attached the updated sponsorship letter confirming your continuous employment since March 2021 on the Skilled Worker route. Salary is unchanged at £52,000. Let us know if your solicitor needs anything further. Kind regards, HR — Brightwave Tech.",
+    aiSummary:
+      'Email 05 Jun from Brightwave Tech HR enclosing an updated sponsorship letter confirming continuous Skilled Worker employment since March 2021 at £52,000. Offers further assistance if needed.',
+  },
+  {
+    caseKey: 'patel-ilr',
+    kind: 'whatsapp',
+    title: 'WhatsApp from client re: boarding passes',
+    receivedAt: '2026-06-03T20:41:00Z',
+    metadata: { from: 'Aarav Patel', from_phone: '+447700900111' },
+    body: "Found the boarding passes for the India trip — left London 02 Aug 2024, came back 21 Aug 2024. So that's 19 days. I counted all my trips and it's 78 days total over the 5 years. Photos coming next.",
+    aiSummary:
+      'WhatsApp 03 Jun: client confirms 2024 India trip ran 02–21 Aug (19 days) and reports 78 days total absences across the 5-year period. Boarding-pass photos to follow.',
+  },
+  {
+    caseKey: 'singh-spouse',
+    kind: 'email',
+    title: 'IELTS result notification',
+    receivedAt: '2026-06-06T16:02:00Z',
+    metadata: { from: 'no-reply@ielts.org', subject: 'Your IELTS Life Skills result' },
+    body: "Dear candidate, your IELTS Life Skills A1 test taken on 20 June 2026 has been marked. Result: Pass. Your Test Report Form will be available to download within 5 working days.",
+    aiSummary:
+      'Email 06 Jun from IELTS confirming the spouse passed IELTS Life Skills A1 (test dated 20 June 2026). Test Report Form available within 5 working days — collect for the application.',
+  },
+];
+
 // --- Seed -----------------------------------------------------------------
 
 console.log('Wiping clients + cases + sources (cascade) …');
@@ -230,6 +268,22 @@ for (const n of NOTES) {
     )
   `;
   console.log(`  + ${n.title} (${n.caseKey})`);
+}
+
+console.log(`Inserting ${MESSAGES.length} pasted messages …`);
+for (const m of MESSAGES) {
+  const caseId = caseIdByKey.get(m.caseKey);
+  if (!caseId) throw new Error(`Unknown caseKey: ${m.caseKey}`);
+  await sql`
+    INSERT INTO sources (
+      case_id, owner_id, kind, title, content_preview,
+      source_received_at, metadata, status, ai_summary, ai_summary_model
+    ) VALUES (
+      ${caseId}, ${OWNER_ID}, ${m.kind}, ${m.title}, ${m.body.slice(0, 300)},
+      ${m.receivedAt}, ${JSON.stringify(m.metadata)}, 'ready', ${m.aiSummary}, 'seed'
+    )
+  `;
+  console.log(`  + [${m.kind}] ${m.title} (${m.caseKey})`);
 }
 
 console.log('\nSeed complete.');
