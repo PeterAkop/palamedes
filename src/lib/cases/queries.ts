@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import type {
   CaseStatus,
   CaseType,
+  ClientOption,
   SidebarItem,
   Case as ViewCase,
   Client as ViewClient,
@@ -47,6 +48,20 @@ export async function listSidebarItems(): Promise<SidebarItem[]> {
     caseStatus: r.caseStatus as CaseStatus,
     clientSurname: r.clientSurname,
   }));
+}
+
+// --- Clients --------------------------------------------------------------
+
+// Owner-scoped client list for the New-case modal's existing-client
+// picker. Ordered by surname then first name for a scannable dropdown.
+export async function listClients(): Promise<ClientOption[]> {
+  const ownerId = getCurrentUserId();
+  const rows = await db
+    .select({ id: clients.id, firstName: clients.firstName, lastName: clients.lastName })
+    .from(clients)
+    .where(eq(clients.ownerId, ownerId))
+    .orderBy(asc(clients.lastName), asc(clients.firstName));
+  return rows;
 }
 
 // --- Case detail ----------------------------------------------------------

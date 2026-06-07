@@ -1,9 +1,15 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, FileText, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CASE_STATUS_LABEL, type CaseStatus, type SidebarItem } from '@/data/cases';
+import {
+  CASE_STATUS_LABEL,
+  type CaseStatus,
+  type ClientOption,
+  type SidebarItem,
+} from '@/data/cases';
+import NewCaseButton from './NewCaseButton';
 
 // Sidebar collapse persisted in the URL — reloads/share-links keep
 // whichever state the lawyer left it in. The state lives at the layout
@@ -14,9 +20,10 @@ const COLLAPSED_VALUE = 'hidden';
 
 interface Props {
   sidebarItems: SidebarItem[];
+  clients: ClientOption[];
 }
 
-export default function CaseSidebar({ sidebarItems }: Props) {
+export default function CaseSidebar({ sidebarItems, clients }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -54,10 +61,7 @@ export default function CaseSidebar({ sidebarItems }: Props) {
             Cases
           </h2>
           <div className="flex items-center gap-1">
-            <button type="button" className="btn btn-ghost btn-xs gap-1" disabled>
-              <Plus className="h-3 w-3" />
-              New
-            </button>
+            <NewCaseButton clients={clients} variant="sidebar" />
             <button
               type="button"
               onClick={toggleCollapsed}

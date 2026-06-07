@@ -124,3 +124,11 @@ export interface SidebarItem {
   caseStatus: CaseStatus;
   clientSurname: string;
 }
+
+// Minimal client shape for the New-case modal's existing-client
+// picker — just enough to render and reference by id.
+export interface ClientOption {
+  id: string;
+  firstName: string;
+  lastName: string;
+}

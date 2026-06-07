@@ -1,5 +1,5 @@
 import CaseSidebar from '@/components/cases/CaseSidebar';
-import { listSidebarItems } from '@/lib/cases/queries';
+import { listClients, listSidebarItems } from '@/lib/cases/queries';
 
 // Render every /cases route on demand rather than statically. The
 // sidebar's URL-state hook (useSearchParams) can't run at build time
@@ -14,12 +14,12 @@ export const dynamic = 'force-dynamic';
 // both sides unconditionally and let CSS/JS handle the visual collapse
 // so the URL is the single source of truth.
 export default async function CasesLayout({ children }: { children: React.ReactNode }) {
-  const sidebarItems = await listSidebarItems();
+  const [sidebarItems, clients] = await Promise.all([listSidebarItems(), listClients()]);
   return (
     <div className="container mx-auto px-4 py-6">
       <div className="flex gap-6 items-start">
         <div className="shrink-0">
-          <CaseSidebar sidebarItems={sidebarItems} />
+          <CaseSidebar sidebarItems={sidebarItems} clients={clients} />
         </div>
         <div className="flex-1 min-w-0">{children}</div>
       </div>
