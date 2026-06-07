@@ -12,7 +12,6 @@ import {
   Plus,
   Scan,
   Sparkles,
-  Upload,
   Wrench,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -26,6 +25,7 @@ import {
   type SourceKind,
 } from '@/data/cases';
 import AddNoteButton from './AddNoteButton';
+import UploadButton from './UploadButton';
 
 type TabId = 'overview' | 'sources' | 'tools';
 const TAB_IDS: readonly TabId[] = ['overview', 'sources', 'tools'] as const;
@@ -223,13 +223,9 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
             Sources
             <span className="badge badge-ghost badge-sm">{sources.length}</span>
           </h2>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <AddNoteButton caseId={caseId} />
-            {/* Upload lands in slice 2 (Vercel Blob + Anthropic Files API). */}
-            <button type="button" className="btn btn-sm btn-primary gap-1" disabled>
-              <Upload className="h-4 w-4" />
-              Upload
-            </button>
+            <UploadButton caseId={caseId} />
           </div>
         </div>
 

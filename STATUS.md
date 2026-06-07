@@ -5,7 +5,7 @@ and what's still to build. Update this whenever a meaningful slice
 lands; reviewers should be able to read this in 5 minutes and know what
 they're walking into.
 
-_Last updated: 2026-06-07 — schema reference section added. Most recent code slice: `feat/sources` slice 1 (2026-06-05) — sources table + note ingestion + Haiku summaries._
+_Last updated: 2026-06-07 — `feat/sources-files` slice 2 in flight (file upload via Vercel Blob + Anthropic Files API + Haiku file summaries)._
 
 ---
 
@@ -82,6 +82,38 @@ _Last updated: 2026-06-07 — schema reference section added. Most recent code s
   Spouse Visa, 2 on Khan Appeal) with pre-computed summaries
   (`ai_summary_model='seed'`). Sources tab is rich on first load.
 
+### Phase A.1 third slice — file upload (`feat/sources-files`)
+
+- **Vercel Blob client.** `src/lib/blob.ts` wraps `@vercel/blob`'s
+  `put()` — uploads land at `sources/<filename>-<random>`. `access:
+  'public'` with random suffix means the URL is unguessable; the
+  app gates discovery behind the Basic Auth fence. Per-user signed
+  URLs are a Phase B concern.
+- **Anthropic Files API.** Upload route calls
+  `anthropic.beta.files.upload(...)` with `betas:
+  ['files-api-2025-04-14']`; the returned `file_id` is stored on
+  the `sources` row and referenced from the Haiku call.
+- **Haiku file summariser.** `summarizeFile({ title, mimeType,
+  anthropicFileId })` in `src/lib/sources/summarize.ts`. PDFs go as
+  `{type: 'document', source: {type: 'file', file_id: …}}`; images
+  (JPEG / PNG / WebP) go as `{type: 'image', …}` so vision handles
+  them. Separate system prompt from notes — primes Claude for
+  scanned docs, payslips, refusal letters.
+- **Upload route.** `POST /api/sources/upload` (multipart, Node
+  runtime). Validates type (PDF / JPEG / PNG / WebP) and size
+  (≤25 MB). Inserts row → uploads to Blob → uploads to Anthropic
+  Files API → stores both refs → summarises → marks `ready` (or
+  `failed` with `error_message`). Returns the row.
+- **UI.** `src/components/cases/UploadButton.tsx` — hidden
+  `<input type="file">` triggered by the visible button; loading
+  state (spinner + "Summarising…") during the round-trip; inline
+  error display next to the button. Replaces the previously-
+  `disabled` Upload button in the Sources tab.
+- **Caveat.** Vercel's default serverless body limit is ~4.5 MB.
+  Files larger than that on a Vercel deployment will 413. The
+  fix is Vercel Blob's client-direct (signed-URL) upload pattern;
+  swap when real lawyers hit it.
+
 ---
 
 ## 2. How the app should work
@@ -125,14 +157,16 @@ multi-tenancy.
 | `src/middleware.ts` | HTTP Basic Auth fence (fail-closed on missing env). |
 | `src/lib/auth.ts` | `getCurrentUserId()` — fence stand-in until real auth. |
 | `src/app/` | Routes. `cases/layout.tsx` owns the sidebar; `cases/[id]/page.tsx` the detail view. |
-| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`. Client components for URL-state interactions and source ingestion. |
+| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`. Client components for URL-state interactions and source ingestion. |
 | `src/components/layout/Header.tsx` | Palamedes top bar. |
 | `src/data/cases.ts` | View-model types + display labels (`CASE_TYPE_LABEL` etc.). _No data here any more_ — name is historical. |
 | `src/lib/cases/queries.ts` | Owner-scoped case + client queries, plus the view-model mapper that calls into `sources/queries.ts`. |
 | `src/lib/sources/queries.ts` | Owner-scoped `listSourcesForCase` + DB→view mapper. |
-| `src/lib/sources/summarize.ts` | `summarizeNote` — Haiku 4.5 call with the UK-immigration system prompt. |
+| `src/lib/sources/summarize.ts` | `summarizeNote` + `summarizeFile` — Haiku 4.5 calls with the UK-immigration system prompts. |
 | `src/lib/anthropic.ts` | Shared Anthropic SDK client + `MODELS` table. Server-only. |
+| `src/lib/blob.ts` | Vercel Blob wrapper (`uploadSourceFile`). Server-only. |
 | `src/app/api/sources/notes/route.ts` | `POST` handler for note creation (Zod validation, ownership check, Haiku call). |
+| `src/app/api/sources/upload/route.ts` | `POST` multipart handler — Blob + Files API + Haiku summary. |
 | `src/db/schema.ts` | Drizzle tables (`clients`, `cases`, `sources`), const tuples for enums, CHECK constraints. |
 | `src/db/db.ts` | Drizzle client over Neon HTTP. Re-exports `schema`. |
 | `src/db/migrations/` | Generated SQL (one file per migration) + meta. |
@@ -262,15 +296,8 @@ Deleting a client cascades through cases → sources. There are no
 
 ## 3. What's outstanding
 
-### Phase A.1 remaining — files, paste, tools
+### Phase A.1 remaining — paste, tools
 
-- **File upload (`feat/sources` slice 2).** Manual upload →
-  Vercel Blob (private, `@vercel/blob`) → Anthropic Files API
-  (`anthropic.beta.files.upload`) → `sources` row with
-  `blob_path` + `anthropic_file_id` → Haiku summary referencing
-  the file_id. Connects the currently-disabled "Upload" button.
-  Likely shifts the Haiku call from synchronous to
-  `after()` / a polling loop since PDF summaries can take longer.
 - **Paste email / WhatsApp (`feat/sources` slice 3).** Modal with
   kind picker; metadata fields (from/subject/from_phone). Same
   summarise-on-insert pattern as notes.
@@ -294,8 +321,8 @@ Deleting a client cascades through cases → sources. There are no
   (`?sidebar=hidden`); the visual collapse is in place. Confirm it
   survives the migration to DB-backed sidebar items.
 - **"New case" button** (currently `disabled` in `CaseSidebar`).
-- **"Upload" button** in the Sources tab (still `disabled` in
-  `CaseTabs` — wires up in slice 2). "Add note" is live.
+- **"Add paste" button** in the Sources tab (lands in slice 3).
+  Both "Add note" and "Upload" are live.
 
 ### Phase A.2 — inbound channels
 
