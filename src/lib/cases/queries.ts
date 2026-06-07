@@ -6,10 +6,12 @@ import type {
   SidebarItem,
   Case as ViewCase,
   Client as ViewClient,
+  Generation as ViewGeneration,
   Source as ViewSource,
 } from '@/data/cases';
 import { cases, clients, db } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
+import { listGenerationsForCase } from '@/lib/generations/queries';
 import { listSourcesForCase } from '@/lib/sources/queries';
 
 // Queries for cases / clients. All scoped to the current owner —
@@ -75,11 +77,14 @@ export async function getCaseById(id: string): Promise<ViewCase | undefined> {
     .limit(1);
   const row = rows[0];
   if (!row) return undefined;
-  // Sources land via the dedicated sources query — ownership is
-  // re-checked there for defense in depth (even though we just
-  // verified it for this case row).
-  const sourcesList = await listSourcesForCase(id);
-  return toViewCase(row, sourcesList);
+  // Sources and generations land via their dedicated queries —
+  // ownership is re-checked there for defense in depth (even though we
+  // just verified it for this case row).
+  const [sourcesList, generationsList] = await Promise.all([
+    listSourcesForCase(id),
+    listGenerationsForCase(id),
+  ]);
+  return toViewCase(row, sourcesList, generationsList);
 }
 
 export async function getClientById(id: string): Promise<ViewClient | undefined> {
@@ -96,7 +101,11 @@ export async function getClientById(id: string): Promise<ViewClient | undefined>
 
 // --- Mappers --------------------------------------------------------------
 
-function toViewCase(row: typeof cases.$inferSelect, sourcesList: ViewSource[]): ViewCase {
+function toViewCase(
+  row: typeof cases.$inferSelect,
+  sourcesList: ViewSource[],
+  generationsList: ViewGeneration[],
+): ViewCase {
   return {
     id: row.id,
     clientId: row.clientId,
@@ -113,9 +122,7 @@ function toViewCase(row: typeof cases.$inferSelect, sourcesList: ViewSource[]): 
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     sources: sourcesList,
-    // Generations don't have tables yet — empty array; the Tools tab
-    // empty-state branch renders. Drops in the next phase (feat/tools).
-    generations: [],
+    generations: generationsList,
   };
 }
 
