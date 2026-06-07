@@ -36,6 +36,9 @@ export interface Source {
   metadata?: Record<string, string | undefined>;
   status: SourceStatus;
   aiSummary?: string;
+  // Populated only when status === 'failed'. Surfaced in the source
+  // card so the lawyer can see why processing failed before retrying.
+  errorMessage?: string;
 }
 
 export interface GenerationMessage {
@@ -63,7 +66,12 @@ export interface Case {
   deadline?: string;
   createdAt: string;
   updatedAt: string;
+  // Lawyer-authored case description.
   summary?: string;
+  // AI-generated case summary (rolled up across sources by Haiku) +
+  // when it was last regenerated. Distinct from `summary`.
+  aiSummary?: string;
+  aiSummaryGeneratedAt?: string;
   sources: Source[];
   generations: Generation[];
 }
@@ -115,4 +123,12 @@ export interface SidebarItem {
   caseTitle: string;
   caseStatus: CaseStatus;
   clientSurname: string;
+}
+
+// Minimal client shape for the New-case modal's existing-client
+// picker — just enough to render and reference by id.
+export interface ClientOption {
+  id: string;
+  firstName: string;
+  lastName: string;
 }

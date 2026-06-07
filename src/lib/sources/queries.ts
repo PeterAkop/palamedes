@@ -1,10 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
+import type { SourceKind, SourceStatus, Source as ViewSource } from '@/data/cases';
 import { db, sources } from '@/db/db';
-import type {
-  Source as ViewSource,
-  SourceKind,
-  SourceStatus,
-} from '@/data/cases';
 import { getCurrentUserId } from '@/lib/auth';
 
 // Queries for sources. All owner-scoped (every row in the DB carries
@@ -38,5 +34,6 @@ function toViewSource(row: typeof sources.$inferSelect): ViewSource {
     metadata: row.metadata ?? undefined,
     status: row.status as SourceStatus,
     aiSummary: row.aiSummary ?? undefined,
+    errorMessage: row.errorMessage ?? undefined,
   };
 }

@@ -9,10 +9,8 @@ import {
   Mail,
   MessageCircle,
   NotebookPen,
-  Plus,
   Scan,
   Sparkles,
-  Upload,
   Wrench,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -25,7 +23,13 @@ import {
   type Source,
   type SourceKind,
 } from '@/data/cases';
+import { TOOLS } from '@/lib/tools/registry';
 import AddNoteButton from './AddNoteButton';
+import PasteButton from './PasteButton';
+import RegenerateSummaryButton from './RegenerateSummaryButton';
+import SourceActions from './SourceActions';
+import ToolRunner from './ToolRunner';
+import UploadButton from './UploadButton';
 
 type TabId = 'overview' | 'sources' | 'tools';
 const TAB_IDS: readonly TabId[] = ['overview', 'sources', 'tools'] as const;
@@ -55,9 +59,7 @@ export default function CaseTabs({ caseData, client }: Props) {
     <div className="space-y-4">
       <Tablist active={activeTab} onChange={setTab} sourceCount={caseData.sources.length} />
       {activeTab === 'overview' && <OverviewTab caseData={caseData} client={client} />}
-      {activeTab === 'sources' && (
-        <SourcesTab caseId={caseData.id} sources={caseData.sources} />
-      )}
+      {activeTab === 'sources' && <SourcesTab caseId={caseData.id} sources={caseData.sources} />}
       {activeTab === 'tools' && <ToolsTab caseData={caseData} />}
     </div>
   );
@@ -186,7 +188,7 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
         </div>
       </div>
 
-      {/* Summary card (AI-generated placeholder) */}
+      {/* AI case summary card — rolled up across sources by Haiku. */}
       <div className="card bg-base-100 border border-base-300">
         <div className="card-body">
           <div className="flex items-center justify-between">
@@ -194,17 +196,35 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
               <Sparkles className="h-4 w-4 text-primary" />
               Case summary
             </h2>
-            <button type="button" className="btn btn-sm btn-ghost gap-1" disabled>
-              <Sparkles className="h-3 w-3" />
-              Regenerate
-            </button>
+            <RegenerateSummaryButton
+              caseId={caseData.id}
+              hasSummary={Boolean(caseData.aiSummary)}
+            />
           </div>
-          {caseData.summary ? (
-            <p className="text-base-content/80 leading-relaxed text-sm">{caseData.summary}</p>
+          {caseData.aiSummary ? (
+            <>
+              <p className="text-base-content/80 leading-relaxed text-sm">{caseData.aiSummary}</p>
+              {caseData.aiSummaryGeneratedAt && (
+                <p className="text-xs text-base-content/40 mt-1">
+                  AI-generated · updated {formatShortDate(caseData.aiSummaryGeneratedAt)}
+                </p>
+              )}
+            </>
           ) : (
             <p className="text-base-content/50 italic text-sm">
-              Case summary will appear here once sources have been added and analysed.
+              Case summary will appear here once sources have been added and analysed. Click
+              Generate to roll up the source summaries.
             </p>
+          )}
+
+          {/* Lawyer-authored note, shown separately when present. */}
+          {caseData.summary && (
+            <div className="mt-3 pt-3 border-t border-base-200">
+              <p className="text-xs uppercase tracking-wide text-base-content/50 mb-1">
+                Solicitor note
+              </p>
+              <p className="text-base-content/80 leading-relaxed text-sm">{caseData.summary}</p>
+            </div>
           )}
         </div>
       </div>
@@ -223,13 +243,10 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
             Sources
             <span className="badge badge-ghost badge-sm">{sources.length}</span>
           </h2>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <AddNoteButton caseId={caseId} />
-            {/* Upload lands in slice 2 (Vercel Blob + Anthropic Files API). */}
-            <button type="button" className="btn btn-sm btn-primary gap-1" disabled>
-              <Upload className="h-4 w-4" />
-              Upload
-            </button>
+            <PasteButton caseId={caseId} />
+            <UploadButton caseId={caseId} />
           </div>
         </div>
 
@@ -258,12 +275,21 @@ function SourceRow({ source }: { source: Source }) {
         <Icon className="h-4 w-4 shrink-0 text-base-content/50" />
         <span className="font-medium truncate min-w-0 flex-1">{source.title}</span>
         <SourceStatusBadge status={source.status} />
-        <span className="text-xs text-base-content/60 shrink-0 ml-auto pr-2 whitespace-nowrap">
+        <span className="text-xs text-base-content/60 shrink-0 ml-auto whitespace-nowrap">
           {SOURCE_KIND_LABEL[source.kind]}
           {source.sourceReceivedAt && ` · ${formatShortDate(source.sourceReceivedAt)}`}
         </span>
+        <SourceActions sourceId={source.id} status={source.status} />
       </summary>
       <div className="collapse-content !pb-3 space-y-2 text-sm">
+        <SourceMeta metadata={source.metadata} />
+        {source.status === 'failed' && source.errorMessage && (
+          <div className="alert alert-error text-xs py-2">
+            <span>
+              Summary failed: {source.errorMessage}. Use the retry button above to try again.
+            </span>
+          </div>
+        )}
         {source.contentPreview && (
           <p className="text-base-content/70 italic line-clamp-3">{source.contentPreview}</p>
         )}
@@ -281,6 +307,29 @@ function SourceRow({ source }: { source: Source }) {
         )}
       </div>
     </details>
+  );
+}
+
+// Renders the correspondence metadata stored on email / WhatsApp
+// sources (from / subject / from_phone). Files carry mime_type /
+// size_bytes which we don't surface here. Renders nothing when there's
+// no metadata or none of the known keys are present.
+function SourceMeta({ metadata }: { metadata?: Record<string, string | undefined> }) {
+  if (!metadata) return null;
+  const rows: Array<[string, string]> = [];
+  if (metadata.from) rows.push(['From', metadata.from]);
+  if (metadata.subject) rows.push(['Subject', metadata.subject]);
+  if (metadata.from_phone) rows.push(['Phone', metadata.from_phone]);
+  if (rows.length === 0) return null;
+  return (
+    <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs text-base-content/70">
+      {rows.map(([label, value]) => (
+        <div key={label} className="contents">
+          <dt className="text-base-content/50">{label}</dt>
+          <dd className="truncate">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -309,38 +358,9 @@ function formatShortDate(iso: string): string {
 
 // --- Tools tab ------------------------------------------------------------
 
-// Hardcoded tool registry for the UI pass. When the real registry lands
-// in lib/tools/, this gets replaced with an import + map.
-const TOOL_STUB = [
-  {
-    id: 'client-care-letter',
-    label: 'Client Care Letter',
-    description: 'SRA-compliant client care letter for new instructions.',
-    category: 'Onboarding',
-  },
-  {
-    id: 'cover-letter-spouse-visa',
-    label: 'Cover Letter — Spouse Visa',
-    description: 'Cover letter for a spouse visa application bundle.',
-    category: 'Cover letters',
-  },
-  {
-    id: 'cover-letter-ilr',
-    label: 'Cover Letter — ILR',
-    description: 'Cover letter for an Indefinite Leave to Remain application.',
-    category: 'Cover letters',
-  },
-  {
-    id: 'appeal-grounds',
-    label: 'Grounds of Appeal',
-    description: 'First-tier Tribunal appeal grounds document.',
-    category: 'Appeals',
-  },
-] as const;
-
 function ToolsTab({ caseData }: { caseData: Case }) {
   // Group tools by category for a tidier list as the registry grows.
-  const grouped = TOOL_STUB.reduce<Record<string, (typeof TOOL_STUB)[number][]>>((acc, t) => {
+  const grouped = TOOLS.reduce<Record<string, typeof TOOLS>>((acc, t) => {
     const bucket = acc[t.category] ?? [];
     bucket.push(t);
     acc[t.category] = bucket;
@@ -353,6 +373,11 @@ function ToolsTab({ caseData }: { caseData: Case }) {
     const prev = latestByTool.get(g.toolId);
     if (!prev || g.version > prev.version) latestByTool.set(g.toolId, g);
   }
+
+  // Ready sources are the selectable context for a generation.
+  const readySources = caseData.sources
+    .filter((s) => s.status === 'ready')
+    .map((s) => ({ id: s.id, title: s.title, kind: s.kind }));
 
   return (
     <div className="card bg-base-100 border border-base-300">
@@ -385,10 +410,13 @@ function ToolsTab({ caseData }: { caseData: Case }) {
                         </p>
                       )}
                     </div>
-                    <button type="button" className="btn btn-sm btn-primary gap-1" disabled>
-                      <Plus className="h-3 w-3" />
-                      {latest ? 'New run' : 'Generate'}
-                    </button>
+                    <ToolRunner
+                      caseId={caseData.id}
+                      toolId={t.id}
+                      toolLabel={t.label}
+                      hasRun={Boolean(latest)}
+                      sources={readySources}
+                    />
                   </div>
                 );
               })}
@@ -397,8 +425,8 @@ function ToolsTab({ caseData }: { caseData: Case }) {
         ))}
 
         <p className="text-xs text-base-content/50 mt-4">
-          Tools wired to Opus + chat-on-generation come in the next branch. This view shows the
-          registry and any past runs.
+          Each tool drafts with Opus from the case summary and selected sources; refine the draft by
+          chat in the run dialog.
         </p>
       </div>
     </div>

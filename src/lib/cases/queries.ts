@@ -1,13 +1,17 @@
 import { and, asc, eq } from 'drizzle-orm';
-import { cases, clients, db } from '@/db/db';
 import type {
+  CaseStatus,
+  CaseType,
+  ClientOption,
+  SidebarItem,
   Case as ViewCase,
   Client as ViewClient,
-  SidebarItem,
+  Generation as ViewGeneration,
   Source as ViewSource,
 } from '@/data/cases';
-import type { CaseStatus, CaseType } from '@/data/cases';
+import { cases, clients, db } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
+import { listGenerationsForCase } from '@/lib/generations/queries';
 import { listSourcesForCase } from '@/lib/sources/queries';
 
 // Queries for cases / clients. All scoped to the current owner —
@@ -48,6 +52,20 @@ export async function listSidebarItems(): Promise<SidebarItem[]> {
   }));
 }
 
+// --- Clients --------------------------------------------------------------
+
+// Owner-scoped client list for the New-case modal's existing-client
+// picker. Ordered by surname then first name for a scannable dropdown.
+export async function listClients(): Promise<ClientOption[]> {
+  const ownerId = getCurrentUserId();
+  const rows = await db
+    .select({ id: clients.id, firstName: clients.firstName, lastName: clients.lastName })
+    .from(clients)
+    .where(eq(clients.ownerId, ownerId))
+    .orderBy(asc(clients.lastName), asc(clients.firstName));
+  return rows;
+}
+
 // --- Case detail ----------------------------------------------------------
 
 export async function getCaseById(id: string): Promise<ViewCase | undefined> {
@@ -59,11 +77,14 @@ export async function getCaseById(id: string): Promise<ViewCase | undefined> {
     .limit(1);
   const row = rows[0];
   if (!row) return undefined;
-  // Sources land via the dedicated sources query — ownership is
-  // re-checked there for defense in depth (even though we just
-  // verified it for this case row).
-  const sourcesList = await listSourcesForCase(id);
-  return toViewCase(row, sourcesList);
+  // Sources and generations land via their dedicated queries —
+  // ownership is re-checked there for defense in depth (even though we
+  // just verified it for this case row).
+  const [sourcesList, generationsList] = await Promise.all([
+    listSourcesForCase(id),
+    listGenerationsForCase(id),
+  ]);
+  return toViewCase(row, sourcesList, generationsList);
 }
 
 export async function getClientById(id: string): Promise<ViewClient | undefined> {
@@ -80,7 +101,11 @@ export async function getClientById(id: string): Promise<ViewClient | undefined>
 
 // --- Mappers --------------------------------------------------------------
 
-function toViewCase(row: typeof cases.$inferSelect, sourcesList: ViewSource[]): ViewCase {
+function toViewCase(
+  row: typeof cases.$inferSelect,
+  sourcesList: ViewSource[],
+  generationsList: ViewGeneration[],
+): ViewCase {
   return {
     id: row.id,
     clientId: row.clientId,
@@ -92,12 +117,12 @@ function toViewCase(row: typeof cases.$inferSelect, sourcesList: ViewSource[]): 
     homeOfficeReference: row.homeOfficeReference ?? undefined,
     deadline: row.deadline ?? undefined,
     summary: row.summary ?? undefined,
+    aiSummary: row.aiSummary ?? undefined,
+    aiSummaryGeneratedAt: row.aiSummaryGeneratedAt?.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     sources: sourcesList,
-    // Generations don't have tables yet — empty array; the Tools tab
-    // empty-state branch renders. Drops in the next phase (feat/tools).
-    generations: [],
+    generations: generationsList,
   };
 }
 
