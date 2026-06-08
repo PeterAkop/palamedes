@@ -5,7 +5,7 @@ and what's still to build. Update this whenever a meaningful slice
 lands; reviewers should be able to read this in 5 minutes and know what
 they're walking into.
 
-_Last updated: 2026-06-07 — **Phase A.1 feature-complete.** `feat/sources-files`: file upload, paste email/WhatsApp, per-source delete/retry, AI case-summary rollup, and New-case creation. `feat/tools`: generations schema + the Tools tab (Opus 4.8 drafts with chat-on-generation streaming). Two migrations (0002, 0003) await `drizzle-kit migrate`._
+_Last updated: 2026-06-08 — **Phase A.1 complete + running locally.** PRs #3/#4 merged to `main` (file upload, paste, delete/retry, AI case summary, New case, generations + Tools tab). Migrations 0002/0003 applied. Post-merge polish on `main`: delete-a-case, private Blob storage, the `revalidateCases()` server-action refresh fix, and Tools-tab UX (view/continue a draft, refine-rewrites-in-place, manual edit, streaming state)._
 
 ---
 
@@ -85,10 +85,10 @@ _Last updated: 2026-06-07 — **Phase A.1 feature-complete.** `feat/sources-file
 ### Phase A.1 third slice — file upload (`feat/sources-files`)
 
 - **Vercel Blob client.** `src/lib/blob.ts` wraps `@vercel/blob`'s
-  `put()` — uploads land at `sources/<filename>-<random>`. `access:
-  'public'` with random suffix means the URL is unguessable; the
-  app gates discovery behind the Basic Auth fence. Per-user signed
-  URLs are a Phase B concern.
+  `put()` — uploads land at `sources/<filename>-<random>`. Originally
+  `access: 'public'`; later switched to **`access: 'private'`** (see
+  post-completion polish) since these are sensitive client documents.
+  A "view original" feature would mint short-lived signed URLs.
 - **Anthropic Files API.** Upload route calls
   `anthropic.beta.files.upload(...)` with `betas:
   ['files-api-2025-04-14']`; the returned `file_id` is stored on
@@ -179,6 +179,43 @@ _Last updated: 2026-06-07 — **Phase A.1 feature-complete.** `feat/sources-file
   instructions → streamed draft → refine-by-chat. Replaces the disabled
   Generate/New-run buttons in the Tools tab.
 
+### Phase A.1 — post-completion fixes & polish (running locally)
+
+Landed while running the app locally against live Neon / Anthropic /
+Vercel Blob:
+
+- **Delete a case.** `DELETE /api/cases/[id]` (owner-scoped; FK cascades
+  remove the case's sources → generations → generation_messages).
+  `DeleteCaseButton.tsx` adds a confirm modal in the case header; on
+  success navigates to `/cases`. Blob/Anthropic-file cleanup deferred.
+- **Private Blob storage.** `uploadSourceFile` now uses
+  `access: 'private'` (sensitive client docs — passports, payslips). The
+  blob URL is no longer public; nothing reads it back by URL today (AI
+  uses the Anthropic `file_id`; `blob_path` is archival). A "view
+  original" feature would mint short-lived signed URLs.
+- **Mutation refresh fix (important).** `router.refresh()` does **not**
+  re-render after a mutation because the project enables
+  `experimental.staleTimes` (next.config), which makes Next 14.2.x serve
+  the cached RSC instead of refetching — newly added notes / sources /
+  summaries / generations only appeared after a hard reload. Replaced
+  every `router.refresh()` with a **`revalidateCases()` server action**
+  (`src/app/cases/actions.ts` → `revalidatePath('/cases', 'layout')`),
+  which invalidates and re-renders reliably (covers the detail page +
+  the sidebar). All mutation components use it.
+- **Tools: view / continue a stored generation.** A "View" button
+  re-opens the latest draft + thread (read from `caseData.generations`,
+  no fetch) and lets the lawyer keep refining it.
+- **Tools: refine rewrites in place.** The draft is a single living
+  document — a refine re-streams a full rewritten letter that *replaces*
+  the current one (no more stacking versions). Conversation is still
+  kept server-side for context.
+- **Tools: manual edit.** A pencil button opens the draft in a textarea;
+  Save persists via `POST /api/generations/[id]/edit` (updates the
+  latest assistant message in place, so later refines build on the edit).
+- **Tools: streaming state.** While generating / refining, the refine
+  input is disabled and a "Refining the draft…/Generating…" spinner
+  shows; the prior draft dims until new text streams in.
+
 ---
 
 ## 2. How the app should work
@@ -222,7 +259,7 @@ multi-tenancy.
 | `src/middleware.ts` | HTTP Basic Auth fence (fail-closed on missing env). |
 | `src/lib/auth.ts` | `getCurrentUserId()` — fence stand-in until real auth. |
 | `src/app/` | Routes. `cases/layout.tsx` owns the sidebar; `cases/[id]/page.tsx` the detail view. |
-| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`, `PasteButton`, `SourceActions`, `RegenerateSummaryButton`, `NewCaseButton`, `ToolRunner`. Client components for URL-state, source ingestion, summaries, case creation, and tool runs. |
+| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`, `PasteButton`, `SourceActions`, `RegenerateSummaryButton`, `NewCaseButton`, `DeleteCaseButton`, `ToolRunner`. Client components for URL-state, source ingestion, summaries, case create/delete, and tool runs (generate / view / refine / edit). |
 | `src/components/layout/Header.tsx` | Palamedes top bar. |
 | `src/data/cases.ts` | View-model types + display labels (`CASE_TYPE_LABEL` etc.). _No data here any more_ — name is historical. |
 | `src/lib/cases/queries.ts` | Owner-scoped case + client queries, plus the view-model mapper that calls into `sources/queries.ts`. |
@@ -233,17 +270,20 @@ multi-tenancy.
 | `src/lib/tools/registry.ts` | In-code tool registry (id/label/system prompt/`buildUserPrompt`). |
 | `src/lib/tools/context.ts` | `buildToolContext` — assembles Opus input from case + selected source summaries. |
 | `src/lib/tools/stream.ts` | `streamGeneration` — shared Opus 4.8 NDJSON streamer; persists the turn + status. |
-| `src/lib/anthropic.ts` | Shared Anthropic SDK client + `MODELS` table. Server-only. |
-| `src/lib/blob.ts` | Vercel Blob wrapper (`uploadSourceFile`). Server-only. |
+| `src/lib/anthropic.ts` | Shared Anthropic SDK client + `MODELS` table (Haiku 4.5 / Opus 4.8). Server-only. |
+| `src/lib/blob.ts` | Vercel Blob wrapper (`uploadSourceFile`, `access: 'private'`). Server-only. |
+| `src/app/cases/actions.ts` | `revalidateCases()` server action — post-mutation re-render (replaces `router.refresh()`). |
 | `src/app/api/sources/notes/route.ts` | `POST` handler for note creation (Zod validation, ownership check, Haiku call). |
 | `src/app/api/sources/upload/route.ts` | `POST` multipart handler — Blob + Files API + Haiku summary. |
 | `src/app/api/sources/paste/route.ts` | `POST` handler for pasted email / WhatsApp (Zod, ownership check, metadata, Haiku call). |
 | `src/app/api/sources/[id]/route.ts` | `DELETE` a source (owner-scoped). |
 | `src/app/api/sources/[id]/retry/route.ts` | `POST` — re-run the Haiku summary for a source. |
 | `src/app/api/cases/route.ts` | `POST` — create a case (+ inline client). |
+| `src/app/api/cases/[id]/route.ts` | `DELETE` a case (owner-scoped; cascades sources + generations). |
 | `src/app/api/cases/[id]/summary/route.ts` | `POST` — regenerate the AI case summary (Haiku rollup). |
 | `src/app/api/generations/route.ts` | `POST` — run a tool; streams an Opus 4.8 draft as NDJSON. |
 | `src/app/api/generations/[id]/messages/route.ts` | `POST` — chat-on-generation refine; re-streams with the thread. |
+| `src/app/api/generations/[id]/edit/route.ts` | `POST` — save a manual edit of the current draft. |
 | `src/db/schema.ts` | Drizzle tables (`clients`, `cases`, `sources`), const tuples for enums, CHECK constraints. |
 | `src/db/db.ts` | Drizzle client over Neon HTTP. Re-exports `schema`. |
 | `src/db/migrations/` | Generated SQL (one file per migration) + meta. |
