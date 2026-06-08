@@ -1,8 +1,8 @@
 'use client';
 
 import { RefreshCw, Trash2 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { revalidateCases } from '@/app/cases/actions';
 import type { SourceStatus } from '@/data/cases';
 
 // Per-source row actions: delete (always) and retry (failed only).
@@ -19,7 +19,6 @@ interface Props {
 }
 
 export default function SourceActions({ sourceId, status }: Props) {
-  const router = useRouter();
   const [isPending, setIsPending] = useState(false);
 
   async function handleRetry(e: React.MouseEvent) {
@@ -30,7 +29,7 @@ export default function SourceActions({ sourceId, status }: Props) {
       await fetch(`/api/sources/${sourceId}/retry`, { method: 'POST' });
     } finally {
       setIsPending(false);
-      router.refresh();
+      await revalidateCases();
     }
   }
 
@@ -43,7 +42,7 @@ export default function SourceActions({ sourceId, status }: Props) {
       await fetch(`/api/sources/${sourceId}`, { method: 'DELETE' });
     } finally {
       setIsPending(false);
-      router.refresh();
+      await revalidateCases();
     }
   }
 

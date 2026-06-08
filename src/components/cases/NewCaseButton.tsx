@@ -3,6 +3,7 @@
 import { Plus } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useRef, useState } from 'react';
+import { revalidateCases } from '@/app/cases/actions';
 import { CASE_TYPE_LABEL, type CaseType, type ClientOption } from '@/data/cases';
 
 // "New case" button + modal. Creates a case against either an existing
@@ -78,6 +79,9 @@ export default function NewCaseButton({ clients, variant = 'default' }: Props) {
       }
       const { caseId } = (await res.json()) as { caseId: string };
       closeDialog();
+      // Revalidate so the sidebar (in the shared /cases layout) shows the
+      // new case — navigation alone won't re-render the layout.
+      await revalidateCases();
       router.push(`/cases/${caseId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create case');

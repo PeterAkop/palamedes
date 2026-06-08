@@ -3,6 +3,7 @@
 import { Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
+import { revalidateCases } from '@/app/cases/actions';
 
 // Delete-case button + confirm modal. Deleting a case cascades to its
 // sources and generated documents, so this gates behind an explicit
@@ -35,8 +36,8 @@ export default function DeleteCaseButton({ caseId, caseTitle }: Props) {
         throw new Error(data.error ?? 'Failed to delete case');
       }
       dialogRef.current?.close();
+      await revalidateCases();
       router.push('/cases');
-      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete case');
       setIsPending(false);

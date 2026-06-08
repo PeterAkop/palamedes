@@ -1,8 +1,8 @@
 'use client';
 
 import { ClipboardPaste, Mail, MessageCircle } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { type FormEvent, useRef, useState } from 'react';
+import { revalidateCases } from '@/app/cases/actions';
 
 // "Paste email / WhatsApp" button + modal. POSTs to
 // /api/sources/paste, which inserts the source row and runs Haiku
@@ -21,7 +21,6 @@ interface Props {
 }
 
 export default function PasteButton({ caseId }: Props) {
-  const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [kind, setKind] = useState<PasteKind>('email');
   const [title, setTitle] = useState('');
@@ -81,7 +80,7 @@ export default function PasteButton({ caseId }: Props) {
       }
       closeDialog();
       resetForm();
-      router.refresh();
+      await revalidateCases();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add source');
     } finally {

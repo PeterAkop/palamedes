@@ -1,8 +1,8 @@
 'use client';
 
 import { Loader2, Upload } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { type ChangeEvent, useRef, useState } from 'react';
+import { revalidateCases } from '@/app/cases/actions';
 
 // "Upload" button + hidden file input. No modal — picking a file is
 // the entire UX. Click → native file picker → file selected → POST
@@ -24,7 +24,6 @@ interface Props {
 }
 
 export default function UploadButton({ caseId }: Props) {
-  const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +68,7 @@ export default function UploadButton({ caseId }: Props) {
         throw new Error(data.message ?? data.error ?? 'Upload failed');
       }
 
-      router.refresh();
+      await revalidateCases();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
@@ -94,11 +93,7 @@ export default function UploadButton({ caseId }: Props) {
         disabled={isPending}
         className="btn btn-sm btn-primary gap-1"
       >
-        {isPending ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Upload className="h-4 w-4" />
-        )}
+        {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
         {isPending ? 'Summarising…' : 'Upload'}
       </button>
     </div>

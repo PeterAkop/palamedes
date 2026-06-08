@@ -1,8 +1,8 @@
 'use client';
 
 import { Plus, Send, Sparkles } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { type FormEvent, useRef, useState } from 'react';
+import { revalidateCases } from '@/app/cases/actions';
 import type { Source } from '@/data/cases';
 
 // Per-tool runner modal. Kicks off a generation (POST /api/generations),
@@ -27,7 +27,6 @@ interface Props {
 }
 
 export default function ToolRunner({ caseId, toolId, toolLabel, hasRun, sources }: Props) {
-  const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const [phase, setPhase] = useState<'config' | 'thread'>('config');
@@ -55,7 +54,7 @@ export default function ToolRunner({ caseId, toolId, toolLabel, hasRun, sources 
   function closeDialog() {
     dialogRef.current?.close();
     // Reflect the persisted generation in the Tools list.
-    router.refresh();
+    void revalidateCases();
   }
 
   function toggleSource(id: string) {

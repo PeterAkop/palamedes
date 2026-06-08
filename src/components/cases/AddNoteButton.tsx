@@ -1,8 +1,8 @@
 'use client';
 
 import { NotebookPen } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { type FormEvent, useRef, useState } from 'react';
+import { revalidateCases } from '@/app/cases/actions';
 
 // "Add note" button + modal. POSTs to /api/sources/notes, the route
 // inserts the source row and runs Haiku synchronously, returns with
@@ -19,7 +19,6 @@ interface Props {
 }
 
 export default function AddNoteButton({ caseId }: Props) {
-  const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -62,7 +61,7 @@ export default function AddNoteButton({ caseId }: Props) {
       resetForm();
       // Server component re-fetches; new source row appears in the
       // Sources list with whatever status Haiku produced.
-      router.refresh();
+      await revalidateCases();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add note');
     } finally {
@@ -72,11 +71,7 @@ export default function AddNoteButton({ caseId }: Props) {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={openDialog}
-        className="btn btn-sm btn-ghost gap-1"
-      >
+      <button type="button" onClick={openDialog} className="btn btn-sm btn-ghost gap-1">
         <NotebookPen className="h-4 w-4" />
         Add note
       </button>

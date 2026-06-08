@@ -1,8 +1,8 @@
 'use client';
 
 import { Sparkles } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { revalidateCases } from '@/app/cases/actions';
 
 // "Regenerate" button on the case-summary card. POSTs to
 // /api/cases/[id]/summary, which rolls up the source summaries with
@@ -15,7 +15,6 @@ interface Props {
 }
 
 export default function RegenerateSummaryButton({ caseId, hasSummary }: Props) {
-  const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,7 +31,7 @@ export default function RegenerateSummaryButton({ caseId, hasSummary }: Props) {
             : (data.message ?? data.error ?? 'Failed to generate summary'),
         );
       }
-      router.refresh();
+      await revalidateCases();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate summary');
     } finally {
