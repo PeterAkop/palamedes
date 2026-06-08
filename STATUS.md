@@ -255,6 +255,48 @@ go to Vercel Blob (private) and to the Anthropic Files API for
 document inputs to Claude. All rows carry `owner_id` for future
 multi-tenancy.
 
+### Tool generation — what context goes to the AI
+
+This is the contract for every tool (Client Care Letter, Cover Letter —
+Spouse Visa, and any future tool — they all share one code path). Three
+operations, each with a deliberately-scoped payload:
+
+**1. Generate a draft** (`POST /api/generations`)
+
+- `system` = the tool's drafting prompt (`registry.ts` → `systemPrompt`).
+- `user` = `buildUserPrompt(ctx)` where `ctx` is assembled by
+  `buildToolContext` (`src/lib/tools/context.ts`) from:
+  - the case title + type,
+  - the client's name,
+  - the **AI case summary** (`cases.ai_summary`, if generated),
+  - the **AI summaries of the selected sources** (the lawyer picks which
+    in the run dialog; default = all `ready` sources),
+  - the optional free-text instructions typed at run time.
+- **Only the Haiku summaries go to Opus — never the raw note/email
+  bodies or the uploaded files.** Source files reach Claude *at
+  summarisation time* via the Files API; tool generation works off the
+  distilled summaries. This keeps the prompt compact and on-topic.
+- Model: Opus 4.8, streamed (adaptive thinking, effort high).
+
+**2. Refine a draft** (`POST /api/generations/[id]/messages`)
+
+- Bounded context to keep input tokens flat round-to-round:
+  `system` (tool prompt) + the **original case-context prompt**
+  (message 0, i.e. the same case summary + selected sources snapshot) +
+  the **current draft** (latest assistant message, including any manual
+  edit) + the **new instruction**.
+- The intermediate back-and-forth is **not** re-sent. The full thread is
+  still persisted in `generation_messages` for the record.
+- The case context is the **snapshot from generation time** — a refine
+  does *not* re-read newly-added sources or a regenerated case summary.
+  Use **New run** to pick up fresh case state.
+
+**3. Manual edit** (`POST /api/generations/[id]/edit`)
+
+- No AI call. Overwrites the latest assistant message in place, so the
+  edited text becomes "the current draft" and any later refine builds on
+  it.
+
 ### File map
 
 | Path | What lives here |
