@@ -207,8 +207,11 @@ Vercel Blob:
   no fetch) and lets the lawyer keep refining it.
 - **Tools: refine rewrites in place.** The draft is a single living
   document — a refine re-streams a full rewritten letter that *replaces*
-  the current one (no more stacking versions). Conversation is still
-  kept server-side for context.
+  the current one (no more stacking versions). To keep input tokens flat
+  per round, refine sends a **bounded** context to Opus — the original
+  case-context prompt (message 0) + the *current* draft + the new
+  instruction — not the whole back-and-forth. The full thread is still
+  persisted in `generation_messages` for the record.
 - **Tools: manual edit.** A pencil button opens the draft in a textarea;
   Save persists via `POST /api/generations/[id]/edit` (updates the
   latest assistant message in place, so later refines build on the edit).
