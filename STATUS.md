@@ -388,9 +388,11 @@ chat-on-generation). Remaining A.1 polish, none blocking:
 - **Retry fidelity for text sources.** Retry re-summarizes from the
   stored `content_preview` (300 chars), not the full body — a
   `raw_content` column would make note/paste retries exact.
-- **Past-generation viewer.** The Tools tab lists past runs (version +
-  status) but `ToolRunner` only drives a fresh run + in-session refine;
-  re-opening a past generation read-only needs a `GET` route.
+- **Generation history.** `ToolRunner` now has a "View" button that
+  re-opens the latest generation's draft + thread (read from
+  `caseData.generations`, no fetch) and lets you keep refining it. Not
+  yet exposed: browsing *all* past versions of a tool (only the latest
+  is reachable) — a version list would need a small UI addition.
 - **More tools** beyond the first two; move the registry to a richer
   structure as it grows.
 - **Collapsible sidebar** (`?sidebar=hidden`) confirmed working.

@@ -1,9 +1,9 @@
 'use client';
 
-import { Plus, Send, Sparkles } from 'lucide-react';
+import { Eye, Plus, Send, Sparkles } from 'lucide-react';
 import { type FormEvent, useRef, useState } from 'react';
 import { revalidateCases } from '@/app/cases/actions';
-import type { Source } from '@/data/cases';
+import type { Generation, Source } from '@/data/cases';
 
 // Per-tool runner modal. Kicks off a generation (POST /api/generations),
 // streams the Opus draft in as NDJSON, then lets the lawyer refine it
@@ -21,12 +21,15 @@ interface Props {
   caseId: string;
   toolId: string;
   toolLabel: string;
-  hasRun: boolean;
+  // The latest generation for this tool on the case, if any — drives
+  // the "View" button and the run-label. Its message thread is already
+  // loaded (listGenerationsForCase), so viewing needs no extra fetch.
+  latest?: Generation;
   // Ready sources on the case, offered as selectable context.
   sources: Array<Pick<Source, 'id' | 'title' | 'kind'>>;
 }
 
-export default function ToolRunner({ caseId, toolId, toolLabel, hasRun, sources }: Props) {
+export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const [phase, setPhase] = useState<'config' | 'thread'>('config');
@@ -45,6 +48,21 @@ export default function ToolRunner({ caseId, toolId, toolLabel, hasRun, sources 
     setInstructions('');
     setGenerationId(null);
     setMessages([]);
+    setStreaming('');
+    setChatInput('');
+    setError(null);
+    dialogRef.current?.showModal();
+  }
+
+  // Open the latest stored generation read-to-continue: show its thread
+  // and set generationId so the refine chat targets it. The first stored
+  // message is the system-built draft prompt — skip it; show the draft
+  // and any refinement turns.
+  function openViewer() {
+    if (!latest) return;
+    setPhase('thread');
+    setGenerationId(latest.id);
+    setMessages(latest.messages.slice(1));
     setStreaming('');
     setChatInput('');
     setError(null);
@@ -159,12 +177,22 @@ export default function ToolRunner({ caseId, toolId, toolLabel, hasRun, sources 
     }
   }
 
+  const hasViewable = Boolean(latest && latest.messages.length > 1);
+
   return (
     <>
-      <button type="button" onClick={openDialog} className="btn btn-sm btn-primary gap-1">
-        <Plus className="h-3 w-3" />
-        {hasRun ? 'New run' : 'Generate'}
-      </button>
+      <div className="flex items-center gap-1">
+        {hasViewable && (
+          <button type="button" onClick={openViewer} className="btn btn-sm btn-ghost gap-1">
+            <Eye className="h-3 w-3" />
+            View
+          </button>
+        )}
+        <button type="button" onClick={openDialog} className="btn btn-sm btn-primary gap-1">
+          <Plus className="h-3 w-3" />
+          {latest ? 'New run' : 'Generate'}
+        </button>
+      </div>
 
       <dialog ref={dialogRef} className="modal">
         <div className="modal-box max-w-3xl">

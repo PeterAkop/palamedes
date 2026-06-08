@@ -414,7 +414,7 @@ function ToolsTab({ caseData }: { caseData: Case }) {
                       caseId={caseData.id}
                       toolId={t.id}
                       toolLabel={t.label}
-                      hasRun={Boolean(latest)}
+                      latest={latest}
                       sources={readySources}
                     />
                   </div>
