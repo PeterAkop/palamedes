@@ -23,16 +23,19 @@ export interface UploadResult {
 // Source files are uploaded under `sources/` so future blob types
 // (case bundles, exported PDFs) stay separable. `addRandomSuffix`
 // avoids collisions when two lawyers upload `passport.pdf` to
-// different cases. Blobs are `public` — the URL itself is
-// unguessable, and the app gates discovery behind the Basic Auth
-// fence; per-user signed URLs are a Phase B concern.
+// different cases. Blobs are `private` — these are sensitive client
+// documents (passports, payslips, financial evidence), so the URL is
+// NOT publicly readable; reading the file back later requires a
+// short-lived signed URL (a "view original" feature, not built yet).
+// Nothing currently reads the blob by URL — the AI summary uses the
+// Anthropic Files API `file_id`, and `blob_path` is archival only.
 export async function uploadSourceFile(args: {
   filename: string;
   body: Buffer | Blob;
   contentType: string;
 }): Promise<UploadResult> {
   const result = await put(`sources/${args.filename}`, args.body, {
-    access: 'public',
+    access: 'private',
     contentType: args.contentType,
     addRandomSuffix: true,
     token: process.env.BLOB_READ_WRITE_TOKEN,
