@@ -39,15 +39,28 @@ and Haiku-summarises them (the same pipeline as pasted email).
 
 ## 2. External setup (Azure Portal — one-time, do this first)
 
-In **Entra ID (Azure AD) → App registrations**:
+**Step 0 — get a Microsoft account + tenant (we don't have one yet).**
+- Create a free Microsoft account at https://account.microsoft.com →
+  Sign up (free; no card needed to register apps).
+- Sign in to the **Entra admin center** (https://entra.microsoft.com) or
+  the Azure portal (https://portal.azure.com). On first sign-in Microsoft
+  auto-provisions a **default directory (tenant)** for you — that's where
+  App registrations live. Registering an app is free (see §"do I pay"
+  answer — no Azure spend involved).
+- _Optional but handy for testing:_ join the free **Microsoft 365
+  Developer Program** (https://developer.microsoft.com/microsoft-365/dev-program)
+  for a sandbox tenant with **pre-seeded test users + mailboxes** — gives
+  you real mailboxes to pull from without buying an M365 license.
+
+Then, in **Entra ID → App registrations**:
 
 1. **New registration**
    - Name: `Palamedes (dev)` (or similar).
-   - Supported account types: **Accounts in any organizational
-     directory** (`organizations`) is the safe default for work/school
-     M365 mailboxes. Use **"any org directory and personal Microsoft
-     accounts"** (`common`) only if a beta user is on a personal
-     Outlook.com account. _Decision needed — see §6._
+   - Supported account types: **"Accounts in any organizational
+     directory and personal Microsoft accounts"** = **`common`**
+     (decided — works for both firm M365 and personal Outlook.com
+     mailboxes, so we don't need to know the beta user's account type up
+     front).
    - Redirect URI (type **Web**):
      - dev: `http://localhost:3000/api/integrations/outlook/callback`
      - prod (after deploy): `https://<vercel-domain>/api/integrations/outlook/callback`
@@ -69,7 +82,7 @@ In **Entra ID (Azure AD) → App registrations**:
 ```
 MS_CLIENT_ID=<Application (client) ID>
 MS_CLIENT_SECRET=<client secret value>
-MS_TENANT=organizations           # or 'common', or a specific tenant id
+MS_TENANT=common                  # decided: work/school + personal accounts
 MS_REDIRECT_URI=http://localhost:3000/api/integrations/outlook/callback
 # Optional: a 32-byte key to encrypt stored tokens at rest (see §6)
 # MS_TOKEN_ENC_KEY=<base64 32 bytes>
@@ -158,8 +171,8 @@ Add a documented placeholder block to `.env.example` too.
 
 ## 6. Decisions / open questions (resolve before/while building)
 
-- **Tenant scope**: `organizations` (work/school only) vs `common`
-  (also personal Outlook.com). Depends on the beta user's account type.
+- ~~**Tenant scope**~~ — **DECIDED: `common`** (work/school + personal
+  accounts; no need to know the beta user's account type up front).
 - **Token encryption at rest**: POC plaintext-in-DB (+ TODO) vs a small
   AES-GCM with `MS_TOKEN_ENC_KEY`. Recommend the env-key encryption
   even for POC since these are mailbox tokens.
