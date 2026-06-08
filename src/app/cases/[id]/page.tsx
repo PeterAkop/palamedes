@@ -1,6 +1,7 @@
 import { Calendar } from 'lucide-react';
 import { notFound } from 'next/navigation';
 import CaseTabs from '@/components/cases/CaseTabs';
+import DeleteCaseButton from '@/components/cases/DeleteCaseButton';
 import { CASE_STATUS_LABEL, CASE_TYPE_LABEL } from '@/data/cases';
 import { getCaseById, getClientById } from '@/lib/cases/queries';
 
@@ -57,6 +58,7 @@ export default async function CaseDetailPage({ params }: Props) {
             )}
           </p>
         </div>
+        <DeleteCaseButton caseId={caseData.id} caseTitle={caseData.title} />
       </div>
 
       <CaseTabs caseData={caseData} client={client} />
