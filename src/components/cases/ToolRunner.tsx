@@ -1,21 +1,19 @@
 'use client';
 
-import { Eye, Plus, Send, Sparkles } from 'lucide-react';
+import { Eye, Pencil, Plus, Send, Sparkles } from 'lucide-react';
 import { type FormEvent, useRef, useState } from 'react';
 import { revalidateCases } from '@/app/cases/actions';
 import type { Generation, Source } from '@/data/cases';
 
-// Per-tool runner modal. Kicks off a generation (POST /api/generations),
-// streams the Opus draft in as NDJSON, then lets the lawyer refine it
-// via chat (POST /api/generations/[id]/messages, same stream shape).
-// On close it router.refresh()es so the Tools tab reflects the persisted
-// generation. Scoped to one in-session generation per open — viewing a
-// past run read-only is a later addition.
-
-interface ThreadMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
+// Per-tool runner modal. Generates an Opus draft (streamed), then lets
+// the lawyer refine it by chat or edit it by hand. The draft is a
+// SINGLE living document: a refine rewrites it in place (the model
+// returns a full new version), so the view shows one current letter,
+// not a growing thread. The conversation is still kept server-side
+// (generation_messages) for refine context.
+//
+// On close it revalidates so the Tools list reflects the persisted
+// generation. "View" re-opens the latest stored draft to read/continue.
 
 interface Props {
   caseId: string;
@@ -32,14 +30,20 @@ interface Props {
 export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
-  const [phase, setPhase] = useState<'config' | 'thread'>('config');
+  const [phase, setPhase] = useState<'config' | 'draft'>('config');
   const [selected, setSelected] = useState<Set<string>>(() => new Set(sources.map((s) => s.id)));
   const [instructions, setInstructions] = useState('');
+
   const [generationId, setGenerationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ThreadMessage[]>([]);
-  const [streaming, setStreaming] = useState('');
+  const [draft, setDraft] = useState(''); // committed current letter
+  const [streaming, setStreaming] = useState(''); // live buffer while streaming
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamKind, setStreamKind] = useState<'generate' | 'refine'>('generate');
+
   const [chatInput, setChatInput] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState('');
+
   const [error, setError] = useState<string | null>(null);
 
   function openDialog() {
@@ -47,31 +51,32 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
     setSelected(new Set(sources.map((s) => s.id)));
     setInstructions('');
     setGenerationId(null);
-    setMessages([]);
+    setDraft('');
     setStreaming('');
     setChatInput('');
+    setIsEditing(false);
     setError(null);
     dialogRef.current?.showModal();
   }
 
-  // Open the latest stored generation read-to-continue: show its thread
-  // and set generationId so the refine chat targets it. The first stored
-  // message is the system-built draft prompt — skip it; show the draft
-  // and any refinement turns.
+  // Open the latest stored generation to read / continue. The current
+  // draft is the last assistant message; generationId is set so refine
+  // and edit target it.
   function openViewer() {
     if (!latest) return;
-    setPhase('thread');
+    const lastAssistant = [...latest.messages].reverse().find((m) => m.role === 'assistant');
+    setPhase('draft');
     setGenerationId(latest.id);
-    setMessages(latest.messages.slice(1));
+    setDraft(lastAssistant?.content ?? '');
     setStreaming('');
     setChatInput('');
+    setIsEditing(false);
     setError(null);
     dialogRef.current?.showModal();
   }
 
   function closeDialog() {
     dialogRef.current?.close();
-    // Reflect the persisted generation in the Tools list.
     void revalidateCases();
   }
 
@@ -84,9 +89,8 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
     });
   }
 
-  // Read an NDJSON stream, dispatching each line. Accumulates assistant
-  // text into `streaming`; resolves to the full assistant text (or
-  // throws on an error line / empty body).
+  // Read an NDJSON stream, accumulating assistant text into `streaming`.
+  // Returns the full text; throws on an error line / empty body.
   async function consumeStream(res: Response): Promise<string> {
     if (!res.ok || !res.body) {
       const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
@@ -128,9 +132,11 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
 
   async function handleGenerate() {
     setError(null);
+    setStreamKind('generate');
     setIsStreaming(true);
-    setPhase('thread');
+    setPhase('draft');
     setStreaming('');
+    setDraft('');
     try {
       const res = await fetch('/api/generations', {
         method: 'POST',
@@ -143,11 +149,11 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
         }),
       });
       const full = await consumeStream(res);
-      setMessages([{ role: 'assistant', content: full }]);
-      setStreaming('');
+      setDraft(full);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Generation failed');
     } finally {
+      setStreaming('');
       setIsStreaming(false);
     }
   }
@@ -155,29 +161,59 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
   async function handleRefine(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!generationId || !chatInput.trim()) return;
-    const userMsg = chatInput.trim();
+    const instruction = chatInput.trim();
     setChatInput('');
     setError(null);
+    setStreamKind('refine');
     setIsStreaming(true);
-    setMessages((prev) => [...prev, { role: 'user', content: userMsg }]);
     setStreaming('');
     try {
       const res = await fetch(`/api/generations/${generationId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: userMsg }),
+        body: JSON.stringify({ content: instruction }),
       });
       const full = await consumeStream(res);
-      setMessages((prev) => [...prev, { role: 'assistant', content: full }]);
-      setStreaming('');
+      setDraft(full); // rewrite in place — the refined letter replaces the old one
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Refinement failed');
     } finally {
+      setStreaming('');
       setIsStreaming(false);
     }
   }
 
+  function startEdit() {
+    setEditText(draft);
+    setIsEditing(true);
+    setError(null);
+  }
+
+  async function saveEdit() {
+    if (!generationId) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/generations/${generationId}/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: editText }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? 'Failed to save edit');
+      }
+      setDraft(editText);
+      setIsEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save edit');
+    }
+  }
+
   const hasViewable = Boolean(latest && latest.messages.length > 1);
+  // What the draft body shows: live stream text once it arrives, else
+  // the committed draft (dimmed while we wait for the first token).
+  const bodyText = isStreaming && streaming ? streaming : draft;
+  const waiting = isStreaming && !streaming;
 
   return (
     <>
@@ -205,7 +241,7 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
             <div className="mt-4 space-y-3">
               <p className="text-sm text-base-content/60">
                 Opus drafts this document from the case summary and the sources you select. You can
-                refine it by chat afterwards.
+                refine or edit it afterwards.
               </p>
 
               <div>
@@ -266,28 +302,54 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
             </div>
           ) : (
             <div className="mt-4 space-y-3">
-              {/* Thread: prior turns + the live streaming assistant text. */}
-              <div className="max-h-[50vh] overflow-y-auto space-y-3 rounded-md border border-base-300 p-3">
-                {messages.map((m, i) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: append-only thread, never reordered or filtered
-                  <div key={`${m.role}-${i}`} className={m.role === 'user' ? 'pl-6' : ''}>
-                    <p className="text-xs uppercase tracking-wide text-base-content/40 mb-1">
-                      {m.role === 'user' ? 'You' : 'Draft'}
-                    </p>
-                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.content}</p>
-                  </div>
-                ))}
-                {isStreaming && (
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-base-content/40 mb-1">
-                      Draft
-                    </p>
-                    <p className="text-sm whitespace-pre-wrap leading-relaxed">
-                      {streaming || <span className="loading loading-dots loading-sm" />}
-                    </p>
-                  </div>
+              <div className="flex items-center justify-between">
+                <p className="text-xs uppercase tracking-wide text-base-content/40 flex items-center gap-2">
+                  Draft
+                  {isStreaming && (
+                    <span className="flex items-center gap-1 text-primary normal-case tracking-normal">
+                      <span className="loading loading-spinner loading-xs" />
+                      {streamKind === 'refine' ? 'Refining the draft…' : 'Generating…'}
+                    </span>
+                  )}
+                </p>
+                {!isEditing && draft && !isStreaming && (
+                  <button type="button" onClick={startEdit} className="btn btn-ghost btn-xs gap-1">
+                    <Pencil className="h-3 w-3" />
+                    Edit
+                  </button>
                 )}
               </div>
+
+              {isEditing ? (
+                <>
+                  <textarea
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    rows={18}
+                    className="textarea textarea-bordered w-full font-mono text-xs leading-relaxed"
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(false)}
+                      className="btn btn-ghost btn-sm"
+                    >
+                      Cancel
+                    </button>
+                    <button type="button" onClick={saveEdit} className="btn btn-primary btn-sm">
+                      Save
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-md border border-base-300 p-3 max-h-[55vh] overflow-y-auto">
+                  <p
+                    className={`text-sm whitespace-pre-wrap leading-relaxed ${waiting ? 'opacity-40' : ''}`}
+                  >
+                    {bodyText || <span className="loading loading-dots loading-sm" />}
+                  </p>
+                </div>
+              )}
 
               {error && (
                 <div className="alert alert-error text-sm py-2">
@@ -295,19 +357,19 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
                 </div>
               )}
 
-              {/* Refine chat — enabled once the first draft has a generationId. */}
+              {/* Refine chat — rewrites the draft in place. */}
               <form onSubmit={handleRefine} className="flex items-center gap-2">
                 <input
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  disabled={isStreaming || !generationId}
-                  placeholder="Refine the draft… e.g. make the tone warmer"
+                  disabled={isStreaming || isEditing || !generationId}
+                  placeholder="Describe a change — the draft will be rewritten…"
                   className="input input-bordered input-sm flex-1"
                 />
                 <button
                   type="submit"
-                  disabled={isStreaming || !generationId || !chatInput.trim()}
+                  disabled={isStreaming || isEditing || !generationId || !chatInput.trim()}
                   className="btn btn-sm btn-primary btn-square"
                   aria-label="Send refinement"
                 >
