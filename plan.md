@@ -20,10 +20,14 @@ and Haiku-summarises them (the same pipeline as pasted email).
   3. queries Graph `/me/messages` for messages where that email is a
      participant (from / to / cc),
   4. for each new message → inserts a `source` (kind `email`,
-     metadata `from`/`subject`, `source_received_at` = receivedDateTime,
-     `content_preview` from the body) → Haiku summary via the existing
-     `summarizePastedMessage`,
+     metadata `from`/`subject` **+ `origin: 'outlook'`**,
+     `source_received_at` = receivedDateTime, `content_preview` from the
+     body) → Haiku summary via the existing `summarizePastedMessage`,
   5. **dedups** on the Graph message id so re-pulling doesn't duplicate.
+- **Tagged as Outlook-imported.** Every source created by the pull
+  carries `metadata.origin = 'outlook'` so it's distinguishable from a
+  manually-pasted email. The Sources tab shows an **"Outlook"** badge on
+  these rows. (Manually-added sources have no `origin`, or `'manual'`.)
 - **Reuses everything we already have**: the source lifecycle
   (`processing → ready/failed`), `summarizePastedMessage`, and
   `revalidateCases()` for the post-action refresh.
@@ -140,6 +144,10 @@ Add a documented placeholder block to `.env.example` too.
   Delete): disabled if not connected or the client has no email;
   loading state; on success show a count and `revalidateCases()`.
 - If the client has no email, prompt the lawyer to add one.
+- **"Outlook" badge** on each pulled source row in the Sources tab
+  (driven by `metadata.origin === 'outlook'`) — a small addition to
+  `SourceRow`/`SourceMeta` in `CaseTabs.tsx`, so the lawyer can tell
+  auto-imported mail from what they pasted in by hand.
 
 ### Reuse
 - `summarizePastedMessage({ kind: 'email', ... })` for summaries.
@@ -161,6 +169,10 @@ Add a documented placeholder block to `.env.example` too.
   Likely strip to text and cap length for the summary + preview.
 - **Consent**: will the beta user's org allow user consent, or do we
   need admin consent? (Affects the "what to tell the user" step.)
+- **Origin tag storage**: `metadata.origin = 'outlook'` (chosen — no
+  migration, renders a badge) vs a first-class `sources.origin` column
+  (better if we later want to filter "show only Outlook sources"). Start
+  with metadata; promote to a column if filtering becomes a need.
 
 ---
 
