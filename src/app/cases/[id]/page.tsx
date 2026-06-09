@@ -2,8 +2,11 @@ import { Calendar } from 'lucide-react';
 import { notFound } from 'next/navigation';
 import CaseTabs from '@/components/cases/CaseTabs';
 import DeleteCaseButton from '@/components/cases/DeleteCaseButton';
+import OutlookCaseActions from '@/components/cases/OutlookCaseActions';
 import { CASE_STATUS_LABEL, CASE_TYPE_LABEL } from '@/data/cases';
+import { getCurrentUserId } from '@/lib/auth';
 import { getCaseById, getClientById } from '@/lib/cases/queries';
+import { getConnection } from '@/lib/outlook/tokens';
 
 // Force-dynamic at the page level too. The parent layout sets the
 // same flag, but route segment config doesn't cascade — without
@@ -33,6 +36,14 @@ export default async function CaseDetailPage({ params }: Props) {
   const client = await getClientById(caseData.clientId);
   const clientLabel = client ? `${client.firstName} ${client.lastName}` : 'Unknown client';
 
+  // Outlook connection status for this owner. Resilient to the
+  // integration_tokens table not existing yet (pre-migration) so the
+  // page never crashes — defaults to "not connected".
+  const outlook = await getConnection(getCurrentUserId(), 'outlook').catch(() => ({
+    connected: false as const,
+    accountEmail: undefined,
+  }));
+
   return (
     <div className="space-y-6">
       {/* Case header — stays above the tabs so the case identity is
@@ -58,7 +69,15 @@ export default async function CaseDetailPage({ params }: Props) {
             )}
           </p>
         </div>
-        <DeleteCaseButton caseId={caseData.id} caseTitle={caseData.title} />
+        <div className="flex items-center gap-2 shrink-0">
+          <OutlookCaseActions
+            caseId={caseData.id}
+            connected={outlook.connected}
+            accountEmail={outlook.accountEmail}
+            clientEmail={client?.email}
+          />
+          <DeleteCaseButton caseId={caseData.id} caseTitle={caseData.title} />
+        </div>
       </div>
 
       <CaseTabs caseData={caseData} client={client} />

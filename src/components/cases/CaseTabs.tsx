@@ -274,6 +274,15 @@ function SourceRow({ source }: { source: Source }) {
       <summary className="collapse-title flex items-center gap-3 pr-10 py-2.5 min-h-0 cursor-pointer">
         <Icon className="h-4 w-4 shrink-0 text-base-content/50" />
         <span className="font-medium truncate min-w-0 flex-1">{source.title}</span>
+        {source.metadata?.origin === 'outlook' && (
+          <span
+            className="badge badge-outline badge-xs gap-1 shrink-0"
+            title="Imported from Outlook"
+          >
+            <Mail className="h-3 w-3" />
+            Outlook
+          </span>
+        )}
         <SourceStatusBadge status={source.status} />
         <span className="text-xs text-base-content/60 shrink-0 ml-auto whitespace-nowrap">
           {SOURCE_KIND_LABEL[source.kind]}
