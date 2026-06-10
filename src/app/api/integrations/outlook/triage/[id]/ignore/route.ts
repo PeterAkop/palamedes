@@ -10,7 +10,7 @@ import { getCurrentUserId } from '@/lib/auth';
 export const runtime = 'nodejs';
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
   const updated = await db
     .update(mailboxMessages)
     .set({ status: 'ignored', updatedAt: new Date() })

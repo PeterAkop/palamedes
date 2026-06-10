@@ -39,7 +39,7 @@ export default async function CaseDetailPage({ params }: Props) {
   // Outlook connection status for this owner. Resilient to the
   // integration_tokens table not existing yet (pre-migration) so the
   // page never crashes — defaults to "not connected".
-  const outlook = await getConnection(getCurrentUserId(), 'outlook').catch(() => ({
+  const outlook = await getConnection(await getCurrentUserId(), 'outlook').catch(() => ({
     connected: false as const,
     accountEmail: undefined,
   }));

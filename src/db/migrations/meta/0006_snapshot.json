@@ -81,12 +81,8 @@
           "name": "account_userId_user_id_fk",
           "tableFrom": "account",
           "tableTo": "user",
-          "columnsFrom": [
-            "userId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -94,10 +90,7 @@
       "compositePrimaryKeys": {
         "account_provider_providerAccountId_pk": {
           "name": "account_provider_providerAccountId_pk",
-          "columns": [
-            "provider",
-            "providerAccountId"
-          ]
+          "columns": ["provider", "providerAccountId"]
         }
       },
       "uniqueConstraints": {},
@@ -235,12 +228,8 @@
           "name": "cases_client_id_clients_id_fk",
           "tableFrom": "cases",
           "tableTo": "clients",
-          "columnsFrom": [
-            "client_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["client_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -423,12 +412,8 @@
           "name": "generation_messages_generation_id_generations_id_fk",
           "tableFrom": "generation_messages",
           "tableTo": "generations",
-          "columnsFrom": [
-            "generation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["generation_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -545,12 +530,8 @@
           "name": "generations_case_id_cases_id_fk",
           "tableFrom": "generations",
           "tableTo": "cases",
-          "columnsFrom": [
-            "case_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["case_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -844,12 +825,8 @@
           "name": "mailbox_messages_assigned_case_id_cases_id_fk",
           "tableFrom": "mailbox_messages",
           "tableTo": "cases",
-          "columnsFrom": [
-            "assigned_case_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assigned_case_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -857,12 +834,8 @@
           "name": "mailbox_messages_suggested_case_id_cases_id_fk",
           "tableFrom": "mailbox_messages",
           "tableTo": "cases",
-          "columnsFrom": [
-            "suggested_case_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["suggested_case_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -911,12 +884,8 @@
           "name": "session_userId_user_id_fk",
           "tableFrom": "session",
           "tableTo": "user",
-          "columnsFrom": [
-            "userId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1111,12 +1080,8 @@
           "name": "sources_case_id_cases_id_fk",
           "tableFrom": "sources",
           "tableTo": "cases",
-          "columnsFrom": [
-            "case_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["case_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1207,10 +1172,7 @@
       "compositePrimaryKeys": {
         "verificationToken_identifier_token_pk": {
           "name": "verificationToken_identifier_token_pk",
-          "columns": [
-            "identifier",
-            "token"
-          ]
+          "columns": ["identifier", "token"]
         }
       },
       "uniqueConstraints": {},

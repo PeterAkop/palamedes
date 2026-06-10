@@ -11,7 +11,7 @@ import { deleteConnection } from '@/lib/outlook/tokens';
 export const runtime = 'nodejs';
 
 export async function POST() {
-  await deleteConnection(getCurrentUserId(), 'outlook');
+  await deleteConnection(await getCurrentUserId(), 'outlook');
   revalidatePath('/cases', 'layout');
   revalidatePath('/settings');
   return NextResponse.json({ disconnected: true });

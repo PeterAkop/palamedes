@@ -41,7 +41,7 @@ const PasteBodySchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   const json = await req.json().catch(() => null);
   const parsed = PasteBodySchema.safeParse(json);

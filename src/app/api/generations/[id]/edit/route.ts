@@ -14,7 +14,7 @@ export const runtime = 'nodejs';
 const BodySchema = z.object({ content: z.string().min(1).max(100_000) });
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   const parsed = BodySchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {

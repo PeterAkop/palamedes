@@ -31,7 +31,7 @@ const NoteBodySchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   const json = await req.json().catch(() => null);
   const parsed = NoteBodySchema.safeParse(json);
@@ -94,9 +94,6 @@ export async function POST(req: NextRequest) {
         updatedAt: new Date(),
       })
       .where(eq(sources.id, inserted.id));
-    return NextResponse.json(
-      { error: 'summary_failed', message },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: 'summary_failed', message }, { status: 502 });
   }
 }

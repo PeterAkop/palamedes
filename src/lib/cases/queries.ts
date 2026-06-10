@@ -30,7 +30,7 @@ import { listSourcesForCase } from '@/lib/sources/queries';
 // --- Sidebar --------------------------------------------------------------
 
 export async function listSidebarItems(): Promise<SidebarItem[]> {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
   const rows = await db
     .select({
       caseId: cases.id,
@@ -57,7 +57,7 @@ export async function listSidebarItems(): Promise<SidebarItem[]> {
 // Owner-scoped client list for the New-case modal's existing-client
 // picker. Ordered by surname then first name for a scannable dropdown.
 export async function listClients(): Promise<ClientOption[]> {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
   const rows = await db
     .select({ id: clients.id, firstName: clients.firstName, lastName: clients.lastName })
     .from(clients)
@@ -69,7 +69,7 @@ export async function listClients(): Promise<ClientOption[]> {
 // --- Case detail ----------------------------------------------------------
 
 export async function getCaseById(id: string): Promise<ViewCase | undefined> {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
   const rows = await db
     .select()
     .from(cases)
@@ -88,7 +88,7 @@ export async function getCaseById(id: string): Promise<ViewCase | undefined> {
 }
 
 export async function getClientById(id: string): Promise<ViewClient | undefined> {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
   const rows = await db
     .select()
     .from(clients)

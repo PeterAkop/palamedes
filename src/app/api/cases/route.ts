@@ -43,7 +43,7 @@ const CaseBodySchema = z
   });
 
 export async function POST(req: NextRequest) {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   const json = await req.json().catch(() => null);
   const parsed = CaseBodySchema.safeParse(json);

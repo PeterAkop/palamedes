@@ -17,9 +17,7 @@ import * as schema from './schema';
 
 const url = process.env.DATABASE_URL;
 if (!url) {
-  throw new Error(
-    'DATABASE_URL is not set — add the pooled Neon connection string to .env.local.',
-  );
+  throw new Error('DATABASE_URL is not set — add the pooled Neon connection string to .env.local.');
 }
 
 const sql = neon(url);

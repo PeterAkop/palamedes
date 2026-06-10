@@ -15,7 +15,7 @@ import { getCurrentUserId } from '@/lib/auth';
 export const runtime = 'nodejs';
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   const deleted = await db
     .delete(cases)

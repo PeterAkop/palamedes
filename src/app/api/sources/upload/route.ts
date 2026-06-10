@@ -1,10 +1,10 @@
 import Anthropic, { toFile } from '@anthropic-ai/sdk';
 import { and, eq } from 'drizzle-orm';
 import { type NextRequest, NextResponse } from 'next/server';
-import { anthropic } from '@/lib/anthropic';
-import { uploadSourceFile } from '@/lib/blob';
 import { cases, db, sources } from '@/db/db';
+import { anthropic } from '@/lib/anthropic';
 import { getCurrentUserId } from '@/lib/auth';
+import { uploadSourceFile } from '@/lib/blob';
 import { summarizeFile } from '@/lib/sources/summarize';
 
 // POST /api/sources/upload — accept a file as multipart form data,
@@ -42,7 +42,7 @@ const ACCEPTED_MIME: ReadonlySet<string> = new Set([
 ]);
 
 export async function POST(req: NextRequest) {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   const formData = await req.formData().catch(() => null);
   if (!formData) {
@@ -92,9 +92,7 @@ export async function POST(req: NextRequest) {
 
   // Title from user-provided field, fallback to filename.
   const title =
-    typeof titleField === 'string' && titleField.trim().length > 0
-      ? titleField.trim()
-      : file.name;
+    typeof titleField === 'string' && titleField.trim().length > 0 ? titleField.trim() : file.name;
 
   // Classify kind: images → `scan` (matches the existing UI's icon
   // for the Source kind), everything else (PDF, future docx) → `file`.
@@ -190,9 +188,6 @@ export async function POST(req: NextRequest) {
       })
       .where(eq(sources.id, inserted.id));
 
-    return NextResponse.json(
-      { error: 'upload_failed', message },
-      { status: 502 },
-    );
+    return NextResponse.json({ error: 'upload_failed', message }, { status: 502 });
   }
 }
