@@ -69,16 +69,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     targets.push(...siblings);
   }
 
-  let assigned = 0;
+  let assigned = 0; // triage items resolved
+  let created = 0; // new sources actually added
   for (const t of targets) {
     try {
       const message = await getMessageById(token, t.externalId);
-      await createEmailSourceFromOutlook({ caseId, ownerId, message });
+      // Idempotent: returns false if the email is already a source on the
+      // case (no duplicate). The item is still marked assigned — it's
+      // resolved either way, just not duplicated.
+      const wasCreated = await createEmailSourceFromOutlook({ caseId, ownerId, message });
       await db
         .update(mailboxMessages)
         .set({ status: 'assigned', assignedCaseId: caseId, updatedAt: new Date() })
         .where(eq(mailboxMessages.id, t.id));
       assigned += 1;
+      if (wasCreated) created += 1;
     } catch {
       // skip this one; continue with the rest of the thread
     }
@@ -87,5 +92,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (assigned === 0) {
     return NextResponse.json({ error: 'assign_failed' }, { status: 502 });
   }
-  return NextResponse.json({ assigned });
+  return NextResponse.json({ assigned, created, alreadyPresent: assigned - created });
 }

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db, sources } from '@/db/db';
 import type { OutlookMessage } from '@/lib/outlook/graph';
 import { summarizePastedMessage } from '@/lib/sources/summarize';
@@ -8,13 +8,26 @@ import { summarizePastedMessage } from '@/lib/sources/summarize';
 // `origin: 'outlook'` with the Graph message id as `external_id` for
 // dedup. Shared by the per-case pull (`pull-outlook`) and triage-assign
 // so both ingest emails identically.
+//
+// **Idempotent**: if this message (`external_id`) is already a source on
+// the case, it's a no-op (returns `false`). This is the single dedup
+// point — so the same email can never be added to a case twice, no
+// matter the path (pull, triage assign, thread assign). Returns `true`
+// when a new source was created.
 export async function createEmailSourceFromOutlook(args: {
   caseId: string;
   ownerId: string;
   message: OutlookMessage;
-}): Promise<void> {
+}): Promise<boolean> {
   const { caseId, ownerId, message: m } = args;
   const from = m.fromAddress ?? m.fromName;
+
+  const [already] = await db
+    .select({ id: sources.id })
+    .from(sources)
+    .where(and(eq(sources.caseId, caseId), eq(sources.externalId, m.id)))
+    .limit(1);
+  if (already) return false;
 
   const [inserted] = await db
     .insert(sources)
@@ -53,4 +66,5 @@ export async function createEmailSourceFromOutlook(args: {
       })
       .where(eq(sources.id, inserted.id));
   }
+  return true;
 }
