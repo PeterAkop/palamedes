@@ -8,6 +8,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -188,6 +189,12 @@ export const sources = pgTable(
     blobPath: text('blob_path'),
     anthropicFileId: text('anthropic_file_id'),
 
+    // External source id for integration-pulled sources (e.g. the
+    // Microsoft Graph message id). Lets the Outlook pull dedupe so
+    // re-pulling a case doesn't create duplicate `email` rows. Null
+    // for manually-added sources.
+    externalId: text('external_id'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -198,6 +205,8 @@ export const sources = pgTable(
     // ("find all 'queued' sources to process"). Cheap to add now;
     // a no-op until we add a queue worker.
     index('sources_status_idx').on(t.status),
+    // Dedup lookups on pull: "does this case already have this external id?"
+    index('sources_case_external_idx').on(t.caseId, t.externalId),
     check('sources_kind_check', sql`${t.kind} IN ('whatsapp','email','file','note','scan')`),
     check('sources_status_check', sql`${t.status} IN ('queued','processing','ready','failed')`),
   ],
@@ -272,6 +281,51 @@ export const generationMessages = pgTable(
 export type GenerationMessage = typeof generationMessages.$inferSelect;
 export type NewGenerationMessage = typeof generationMessages.$inferInsert;
 
+// --- Integration tokens ---------------------------------------------------
+
+// OAuth tokens for external integrations the lawyer connects (Outlook
+// first). One row per (owner, provider). `access_token` / `refresh_token`
+// are stored ENCRYPTED at rest (AES-GCM via MS_TOKEN_ENC_KEY) — see
+// src/lib/outlook/tokens.ts; the DB only ever holds ciphertext.
+// `account_email` is the connected mailbox (shown in the UI). For the
+// single fence user there's just one Outlook row today.
+
+export const INTEGRATION_PROVIDERS = ['outlook'] as const;
+export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
+
+export const integrationTokens = pgTable(
+  'integration_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerId: text('owner_id').notNull(),
+    provider: text('provider').notNull(),
+    // Encrypted at rest. Refresh token may be absent if the provider
+    // didn't return one (we request offline_access so it should).
+    accessToken: text('access_token').notNull(),
+    refreshToken: text('refresh_token'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    scope: text('scope'),
+    accountEmail: text('account_email'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One connection per (owner, provider) — upsert target.
+    uniqueIndex('integration_tokens_owner_provider_idx').on(t.ownerId, t.provider),
+    check('integration_tokens_provider_check', sql`${t.provider} IN ('outlook')`),
+  ],
+);
+
+export type IntegrationToken = typeof integrationTokens.$inferSelect;
+export type NewIntegrationToken = typeof integrationTokens.$inferInsert;
+
 // --- Re-export combined for convenience in `db.ts`. -----------------------
 
-export const tables = { clients, cases, sources, generations, generationMessages };
+export const tables = {
+  clients,
+  cases,
+  sources,
+  generations,
+  generationMessages,
+  integrationTokens,
+};

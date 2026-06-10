@@ -5,7 +5,7 @@ and what's still to build. Update this whenever a meaningful slice
 lands; reviewers should be able to read this in 5 minutes and know what
 they're walking into.
 
-_Last updated: 2026-06-08 — **Phase A.1 complete + running locally.** PRs #3/#4 merged to `main` (file upload, paste, delete/retry, AI case summary, New case, generations + Tools tab). Migrations 0002/0003 applied. Post-merge polish on `main`: delete-a-case, private Blob storage, the `revalidateCases()` server-action refresh fix, and Tools-tab UX (view/continue a draft, refine-rewrites-in-place, manual edit, streaming state)._
+_Last updated: 2026-06-10 — **Phase A.1 on `main`; Phase A.2 started.** A.1 (file upload, paste, delete/retry, AI case summary, New case, generations + Tools tab, delete-a-case, private Blob, the `revalidateCases()` refresh fix) is merged. **Outlook pull integration** built on `feat/outlook-integration` (delegated OAuth + per-case "Pull from Outlook", encrypted token storage, dedup, "Outlook" badge) — working locally; migration 0004 to apply, branch not yet merged. See §2 "Outlook integration — how the pull works"._
 
 ---
 
@@ -219,6 +219,31 @@ Vercel Blob:
   input is disabled and a "Refining the draft…/Generating…" spinner
   shows; the prior draft dims until new text streams in.
 
+### Phase A.2 first slice — Outlook pull integration (`feat/outlook-integration`)
+
+First inbound channel, **pull-on-demand** (no cron/webhooks). The lawyer
+connects their own Outlook mailbox once, then a per-case **"Pull from
+Outlook"** button imports the client's emails as `email` sources. See
+"Outlook integration — how the pull works" in §2 for the full flow.
+
+- **DB (migration 0004):** `integration_tokens` table (OAuth tokens per
+  owner+provider, AES-GCM encrypted at rest) + `sources.external_id`
+  (Graph message id) for dedup.
+- **Lib (`src/lib/outlook/`):** `oauth.ts` (authorize/exchange/refresh),
+  `graph.ts` (`getConnectedEmail`, `listMessagesForEmail`), `tokens.ts`
+  (save / `getConnection` / `getValidAccessToken` with auto-refresh),
+  `crypto.ts` (AES-256-GCM).
+- **Routes:** `GET /api/integrations/outlook/connect` (+ `/callback`)
+  for the delegated OAuth flow; `POST /api/cases/[id]/pull-outlook` for
+  the import.
+- **UI:** `OutlookCaseActions` in the case header — "Connect Outlook" or
+  "Pull from Outlook" (disabled without a client email); pulled sources
+  carry an **"Outlook"** badge in the Sources tab.
+- **Env:** `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_TENANT` (=`common`) /
+  `MS_REDIRECT_URI` / `MS_TOKEN_ENC_KEY`. App registered as
+  multitenant+personal so any mailbox (firm M365 or personal Outlook)
+  can connect. On `feat/outlook-integration`; migration 0004 to apply.
+
 ---
 
 ## 2. How the app should work
@@ -297,6 +322,55 @@ operations, each with a deliberately-scoped payload:
   edited text becomes "the current draft" and any later refine builds on
   it.
 
+### Outlook integration (Microsoft Graph) — how the pull works
+
+Phase A.2's first inbound channel. **Pull-on-demand, delegated OAuth, no
+cron.** The solicitor connects their *own* Outlook mailbox once; a
+per-case button imports the client's emails. Lib lives in
+`src/lib/outlook/`; routes under `src/app/api/integrations/outlook/` and
+`src/app/api/cases/[id]/pull-outlook`.
+
+**Connecting (one-time per mailbox).** OAuth authorization-code flow:
+
+1. `GET /api/integrations/outlook/connect` sets a CSRF `state` cookie and
+   redirects to Microsoft's consent screen (scopes `Mail.Read`,
+   `offline_access`, `User.Read`).
+2. The user signs in with their mailbox and approves.
+3. Microsoft redirects to `GET /api/integrations/outlook/callback`, which
+   verifies the `state` cookie, exchanges the `code` for an **access +
+   refresh token** (server-to-server), reads the mailbox address via
+   Graph, and stores the tokens **AES-256-GCM encrypted** in
+   `integration_tokens` (keyed by owner+provider; `MS_TOKEN_ENC_KEY`).
+   It then `revalidatePath('/cases','layout')`s and redirects back so the
+   header flips to "Pull from Outlook".
+
+Tokens never touch the browser — the only cookie is the temporary CSRF
+`state`. The app is registered **multitenant+personal** (`MS_TENANT=common`)
+so any mailbox (firm M365 or personal Outlook.com) can connect.
+
+**Pulling (per case).** `POST /api/cases/[id]/pull-outlook`:
+
+1. Owner-scoped; resolves the case's **client email** (`clients.email`).
+   The button is disabled if the client has no email (nothing to match).
+2. `getValidAccessToken()` returns a usable token, **auto-refreshing** via
+   the stored refresh token if the access token is within 60s of expiry.
+3. Graph `GET /me/messages?$search="<client email>"` (top 25) returns
+   messages where that address is a participant; bodies are HTML→text'd.
+4. **Dedup:** skip any whose Graph message id already exists as a
+   `sources.external_id` on this case — so re-pulling never duplicates.
+5. Each fresh message becomes an `email` source tagged
+   `metadata.origin = 'outlook'` (→ the **"Outlook" badge**), with
+   `external_id` = the Graph id and `source_received_at` = the email date,
+   then Haiku-summarised via the same `summarizePastedMessage` used for
+   pasted email. Returns `{ imported, skipped }`.
+
+**POC limits / notes.** Pulls the ~25 best `$search` matches (no
+pagination), summarises synchronously (fine locally; a background job is
+later if mailboxes are large), and the access token is read fresh per
+request. There's no "disconnect" UI yet (delete the `integration_tokens`
+row to reset). Webhooks / continuous sync are a later phase and need a
+public HTTPS endpoint (a Vercel deploy first).
+
 ### File map
 
 | Path | What lives here |
@@ -304,7 +378,7 @@ operations, each with a deliberately-scoped payload:
 | `src/middleware.ts` | HTTP Basic Auth fence (fail-closed on missing env). |
 | `src/lib/auth.ts` | `getCurrentUserId()` — fence stand-in until real auth. |
 | `src/app/` | Routes. `cases/layout.tsx` owns the sidebar; `cases/[id]/page.tsx` the detail view. |
-| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`, `PasteButton`, `SourceActions`, `RegenerateSummaryButton`, `NewCaseButton`, `DeleteCaseButton`, `ToolRunner`. Client components for URL-state, source ingestion, summaries, case create/delete, and tool runs (generate / view / refine / edit). |
+| `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`, `PasteButton`, `SourceActions`, `RegenerateSummaryButton`, `NewCaseButton`, `DeleteCaseButton`, `ToolRunner`, `OutlookCaseActions`. Client components for URL-state, source ingestion, summaries, case create/delete, tool runs, and Outlook connect/pull. |
 | `src/components/layout/Header.tsx` | Palamedes top bar. |
 | `src/data/cases.ts` | View-model types + display labels (`CASE_TYPE_LABEL` etc.). _No data here any more_ — name is historical. |
 | `src/lib/cases/queries.ts` | Owner-scoped case + client queries, plus the view-model mapper that calls into `sources/queries.ts`. |
@@ -315,6 +389,10 @@ operations, each with a deliberately-scoped payload:
 | `src/lib/tools/registry.ts` | In-code tool registry (id/label/system prompt/`buildUserPrompt`). |
 | `src/lib/tools/context.ts` | `buildToolContext` — assembles Opus input from case + selected source summaries. |
 | `src/lib/tools/stream.ts` | `streamGeneration` — shared Opus 4.8 NDJSON streamer; persists the turn + status. |
+| `src/lib/outlook/oauth.ts` | MS identity OAuth — authorize URL / code exchange / refresh (delegated). |
+| `src/lib/outlook/graph.ts` | Graph client — `getConnectedEmail`, `listMessagesForEmail` (+ HTML→text). |
+| `src/lib/outlook/tokens.ts` | Owner-scoped token store — save / `getConnection` / `getValidAccessToken` (auto-refresh). |
+| `src/lib/outlook/crypto.ts` | AES-256-GCM encrypt/decrypt for stored tokens (`MS_TOKEN_ENC_KEY`). |
 | `src/lib/anthropic.ts` | Shared Anthropic SDK client + `MODELS` table (Haiku 4.5 / Opus 4.8). Server-only. |
 | `src/lib/blob.ts` | Vercel Blob wrapper (`uploadSourceFile`, `access: 'private'`). Server-only. |
 | `src/app/cases/actions.ts` | `revalidateCases()` server action — post-mutation re-render (replaces `router.refresh()`). |
@@ -329,7 +407,10 @@ operations, each with a deliberately-scoped payload:
 | `src/app/api/generations/route.ts` | `POST` — run a tool; streams an Opus 4.8 draft as NDJSON. |
 | `src/app/api/generations/[id]/messages/route.ts` | `POST` — chat-on-generation refine; re-streams with the thread. |
 | `src/app/api/generations/[id]/edit/route.ts` | `POST` — save a manual edit of the current draft. |
-| `src/db/schema.ts` | Drizzle tables (`clients`, `cases`, `sources`), const tuples for enums, CHECK constraints. |
+| `src/app/api/integrations/outlook/connect/route.ts` | `GET` — start OAuth (CSRF state cookie → MS consent). |
+| `src/app/api/integrations/outlook/callback/route.ts` | `GET` — OAuth callback: exchange code, store encrypted tokens, revalidate. |
+| `src/app/api/cases/[id]/pull-outlook/route.ts` | `POST` — pull the client's emails via Graph → dedupe → `email` sources. |
+| `src/db/schema.ts` | Drizzle tables (`clients`, `cases`, `sources`, `generations`, `generation_messages`, `integration_tokens`), const tuples for enums, CHECK constraints. |
 | `src/db/db.ts` | Drizzle client over Neon HTTP. Re-exports `schema`. |
 | `src/db/migrations/` | Generated SQL (one file per migration) + meta. |
 | `drizzle.config.ts` | drizzle-kit config; uses unpooled URL for DDL. |
@@ -423,9 +504,10 @@ CHECK constraints (enforced at the DB level alongside Drizzle's TS unions):
 | `ai_summary_model` | text | NULL | which model produced it (e.g. `claude-haiku-4-5-20251001`, `'seed'` for fixtures) |
 | `blob_path` | text | NULL | Vercel Blob URL (file/scan kinds, slice 2) |
 | `anthropic_file_id` | text | NULL | Anthropic Files API id (file/scan kinds, slice 2) |
+| `external_id` | text | NULL | external source id (Graph message id) — dedup key for integration-pulled sources; null for manual ones |
 | `created_at`, `updated_at` | timestamptz | NOT NULL | default `now()` |
 
-Indexes: `sources_case_id_idx (case_id)`, `sources_owner_id_idx (owner_id)`, `sources_status_idx (status)`. The status index is cheap and ready for the future "find all `queued` sources to process" worker.
+Indexes: `sources_case_id_idx (case_id)`, `sources_owner_id_idx (owner_id)`, `sources_status_idx (status)`, `sources_case_external_idx (case_id, external_id)`. The status index is cheap and ready for the future "find all `queued` sources to process" worker; the case-external index backs the Outlook pull's dedup lookup.
 
 CHECK constraints:
 
@@ -456,6 +538,27 @@ Also on `cases` (migration 0002): `ai_summary` / `ai_summary_model` /
 `ai_summary_generated_at` — the AI case summary, alongside the
 lawyer-authored `summary`.
 
+#### `integration_tokens`
+
+OAuth tokens for connected integrations (Outlook first). Migration 0004.
+One row per `(owner_id, provider)` — unique index, the upsert target.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | — | PK, default `gen_random_uuid()` |
+| `owner_id` | text | NOT NULL | |
+| `provider` | text | NOT NULL | CHECK IN (`'outlook'`) |
+| `access_token` | text | NOT NULL | **AES-256-GCM encrypted** at rest |
+| `refresh_token` | text | NULL | encrypted; absent if the provider returned none |
+| `expires_at` | timestamptz | NULL | access-token expiry (drives auto-refresh) |
+| `scope` | text | NULL | granted scopes |
+| `account_email` | text | NULL | the connected mailbox (shown in the UI) |
+| `created_at`, `updated_at` | timestamptz | NOT NULL | default `now()` |
+
+Unique index: `integration_tokens_owner_provider_idx (owner_id, provider)`.
+Plaintext tokens never hit the DB — encrypt/decrypt is `src/lib/outlook/crypto.ts`
+keyed by `MS_TOKEN_ENC_KEY`.
+
 ---
 
 ## 3. What's outstanding
@@ -484,13 +587,18 @@ chat-on-generation). Remaining A.1 polish, none blocking:
 
 ### Phase A.2 — inbound channels
 
+- **Outlook (Microsoft Graph) — pull-on-demand: DONE** (`feat/outlook-integration`,
+  not yet merged). Per-case "Pull from Outlook" imports the client's
+  emails. See §2 "Outlook integration — how the pull works". Remaining
+  Outlook polish: a **disconnect** button; pagination / time-window on
+  large mailboxes; background (async) summarisation; and eventually a
+  **change-notification webhook** for continuous sync (needs a public
+  HTTPS endpoint → a deploy).
 - **WhatsApp Business sandbox webhook.** Verify, parse, route to the
   right case (by phone number lookup against `clients.phone`), create
   a `source` row.
-- **Outlook (Microsoft Graph) webhook.** Same pattern keyed on
-  `clients.email`.
-- **Routing rules.** Unrouted messages need an "unassigned" inbox /
-  triage path.
+- **Routing rules.** Inbound messages (esp. future push/webhook ones)
+  that match no client need an "unassigned" inbox / triage path.
 
 ### Phase B — solicitor-grade polish
 
