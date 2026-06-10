@@ -5,7 +5,7 @@ and what's still to build. Update this whenever a meaningful slice
 lands; reviewers should be able to read this in 5 minutes and know what
 they're walking into.
 
-_Last updated: 2026-06-10 — **Phase A.1 on `main`; Phase A.2 started.** A.1 (file upload, paste, delete/retry, AI case summary, New case, generations + Tools tab, delete-a-case, private Blob, the `revalidateCases()` refresh fix) is merged. **Outlook pull integration** built on `feat/outlook-integration` (delegated OAuth + per-case "Pull from Outlook", encrypted token storage, dedup, "Outlook" badge) — working locally; migration 0004 to apply, branch not yet merged. See §2 "Outlook integration — how the pull works"._
+_Last updated: 2026-06-10 — **Phase A.1 + Outlook pull + settings on `main`; triage in flight.** Merged: A.1, the Outlook per-case pull (PR #5, delegated OAuth + encrypted tokens), and the settings page (PR #6). In flight on `feat/email-triage`: the **mailbox triage inbox with Haiku case suggestions** (sync recent mail → suggest → assign/ignore, idempotent) + a Cases header link — migration 0005 to apply. See §2 "Outlook integration — how the pull works" and "Email triage — how it works"._
 
 ---
 
@@ -242,7 +242,32 @@ Outlook"** button imports the client's emails as `email` sources. See
 - **Env:** `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_TENANT` (=`common`) /
   `MS_REDIRECT_URI` / `MS_TOKEN_ENC_KEY`. App registered as
   multitenant+personal so any mailbox (firm M365 or personal Outlook)
-  can connect. On `feat/outlook-integration`; migration 0004 to apply.
+  can connect. **Merged to `main`** (PR #5); migration 0004 to apply.
+- **Settings page** (PR #6): `/settings` shows the connected mailbox +
+  Connect/Disconnect; Triage/Settings links in the header.
+
+### Phase A.2 second slice — mailbox triage with AI suggestions (`feat/email-triage`)
+
+Solves address-only matching's blind spots (self-forwards, threads
+without the client, internal notes). A **mailbox triage inbox**: pull
+recent messages (not address-filtered), Haiku **suggests the case** per
+message, the lawyer **assigns** (one-click on the suggestion / pick
+another / whole thread) or **ignores**. See "Email triage — how it
+works" in §2. The per-case pull stays as the fast path.
+
+- **DB (migration 0005):** `mailbox_messages` — triage candidates with
+  `status` (pending/assigned/ignored), `conversation_id`,
+  suggested/assigned case FKs. Unique `(owner, external_id)`.
+- **Lib:** `graph.ts` gains `listRecentMessages` + `getMessageById`;
+  `sources/fromEmail.ts` factors `createEmailSourceFromOutlook` (shared
+  by pull + assign, **idempotent** — an email can't be added to a case
+  twice); `triage/suggest.ts` (Haiku forced-tool `{caseId|null, reason}`);
+  `triage/queries.ts`.
+- **Routes:** `POST .../triage/sync` (pull + suggest), `.../triage/[id]/assign`
+  (+ `includeThread`), `.../triage/[id]/ignore`.
+- **UI:** `/triage` page (`TriageList`/`TriageRow`); header **Triage**
+  link with a live pending-count badge; a **Cases** link too.
+- On `feat/email-triage`; migration 0005 to apply.
 
 ---
 
@@ -367,9 +392,38 @@ so any mailbox (firm M365 or personal Outlook.com) can connect.
 **POC limits / notes.** Pulls the ~25 best `$search` matches (no
 pagination), summarises synchronously (fine locally; a background job is
 later if mailboxes are large), and the access token is read fresh per
-request. There's no "disconnect" UI yet (delete the `integration_tokens`
-row to reset). Webhooks / continuous sync are a later phase and need a
-public HTTPS endpoint (a Vercel deploy first).
+request. Disconnect is in **Settings**. Webhooks / continuous sync are a
+later phase and need a public HTTPS endpoint (a Vercel deploy first).
+
+### Email triage (Microsoft Graph) — how it works
+
+For when address-only matching isn't enough. The lawyer opens **Triage**
+(header link, with a pending-count badge) and **Syncs**:
+
+1. **Sync** (`POST …/triage/sync`) — pulls the 25 most-recent mailbox
+   messages (date-ordered, *not* `$search`-filtered), inserts the new
+   ones as `pending` `mailbox_messages` (skipping any already tracked —
+   pending/assigned/ignored — by `(owner, message id)`), then runs Haiku
+   over each to **suggest a case** (`{caseId|null, reason}` against the
+   owner's cases — never guesses) and stores it.
+2. **Triage** (`/triage`) — each pending item shows the email + the
+   suggested case + reason, a **case picker** (defaulting to the
+   suggestion), and **Assign** / **Ignore**, plus an optional **whole
+   thread** toggle (assigns same-`conversationId` pending siblings too).
+3. **Assign** (`POST …/triage/[id]/assign`) — fetches the full message
+   (`getMessageById`), creates an `email` source on the case via the
+   shared `createEmailSourceFromOutlook` (Outlook badge + summary), and
+   marks the item `assigned`. **Idempotent** — if the email is already a
+   source on that case it's a no-op (no duplicate); the route reports
+   `created` vs `alreadyPresent`.
+4. **Ignore** (`POST …/triage/[id]/ignore`) — marks `ignored`; won't
+   resurface on re-sync.
+
+Suggestions are decision support — the lawyer always confirms. POC limits:
+25-message sync window, synchronous suggestion, and the per-case pull /
+triage don't yet cross-dedupe *which messages appear* (the source-level
+idempotency means no duplicates either way; a message already pulled can
+still show in triage — just Ignore it).
 
 ### File map
 
@@ -379,6 +433,9 @@ public HTTPS endpoint (a Vercel deploy first).
 | `src/lib/auth.ts` | `getCurrentUserId()` — fence stand-in until real auth. |
 | `src/app/` | Routes. `cases/layout.tsx` owns the sidebar; `cases/[id]/page.tsx` the detail view. |
 | `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`, `PasteButton`, `SourceActions`, `RegenerateSummaryButton`, `NewCaseButton`, `DeleteCaseButton`, `ToolRunner`, `OutlookCaseActions`. Client components for URL-state, source ingestion, summaries, case create/delete, tool runs, and Outlook connect/pull. |
+| `src/components/settings/OutlookSettings.tsx` + `src/app/settings/` | Settings page: connected mailbox + connect/disconnect. |
+| `src/components/triage/` + `src/app/triage/` | Mailbox triage: `/triage` page, `TriageList` / `TriageRow`. |
+| `src/app/api/integrations/outlook/{disconnect,triage/sync,triage/[id]/assign,triage/[id]/ignore}/route.ts` | Disconnect + triage sync / assign / ignore. |
 | `src/components/layout/Header.tsx` | Palamedes top bar. |
 | `src/data/cases.ts` | View-model types + display labels (`CASE_TYPE_LABEL` etc.). _No data here any more_ — name is historical. |
 | `src/lib/cases/queries.ts` | Owner-scoped case + client queries, plus the view-model mapper that calls into `sources/queries.ts`. |
@@ -393,6 +450,10 @@ public HTTPS endpoint (a Vercel deploy first).
 | `src/lib/outlook/graph.ts` | Graph client — `getConnectedEmail`, `listMessagesForEmail` (+ HTML→text). |
 | `src/lib/outlook/tokens.ts` | Owner-scoped token store — save / `getConnection` / `getValidAccessToken` (auto-refresh). |
 | `src/lib/outlook/crypto.ts` | AES-256-GCM encrypt/decrypt for stored tokens (`MS_TOKEN_ENC_KEY`). |
+| `src/lib/outlook/graph.ts` (cont.) | also `listRecentMessages` + `getMessageById` (triage sync / assign). |
+| `src/lib/sources/fromEmail.ts` | `createEmailSourceFromOutlook` — shared, idempotent email→source (pull + triage assign). |
+| `src/lib/triage/suggest.ts` | `suggestCaseForMessage` — Haiku forced-tool case suggestion. |
+| `src/lib/triage/queries.ts` | `listPendingTriage` / `listCaseOptions` / `countPendingTriage`. |
 | `src/lib/anthropic.ts` | Shared Anthropic SDK client + `MODELS` table (Haiku 4.5 / Opus 4.8). Server-only. |
 | `src/lib/blob.ts` | Vercel Blob wrapper (`uploadSourceFile`, `access: 'private'`). Server-only. |
 | `src/app/cases/actions.ts` | `revalidateCases()` server action — post-mutation re-render (replaces `router.refresh()`). |
@@ -559,6 +620,17 @@ Unique index: `integration_tokens_owner_provider_idx (owner_id, provider)`.
 Plaintext tokens never hit the DB — encrypt/decrypt is `src/lib/outlook/crypto.ts`
 keyed by `MS_TOKEN_ENC_KEY`.
 
+#### `mailbox_messages`
+
+Triage candidates (migration 0005) — recent mailbox messages before
+they're committed to a case. `owner_id`, `provider`, `external_id`
+(Graph id) + `conversation_id`, `from_address`/`from_name`, `subject`,
+`received_at`, `snippet`, `status` ∈ `pending|assigned|ignored`,
+`assigned_case_id` / `suggested_case_id` (FK → cases, SET NULL on
+delete), `suggestion_reason`. Unique `(owner_id, external_id)`; indexes
+on `(owner_id, status)` and `(owner_id, conversation_id)`. A row becomes
+a `source` only when assigned.
+
 ---
 
 ## 3. What's outstanding
@@ -587,18 +659,20 @@ chat-on-generation). Remaining A.1 polish, none blocking:
 
 ### Phase A.2 — inbound channels
 
-- **Outlook (Microsoft Graph) — pull-on-demand: DONE** (`feat/outlook-integration`,
-  not yet merged). Per-case "Pull from Outlook" imports the client's
-  emails. See §2 "Outlook integration — how the pull works". Remaining
-  Outlook polish: a **disconnect** button; pagination / time-window on
-  large mailboxes; background (async) summarisation; and eventually a
+- **Outlook (Microsoft Graph): DONE.** Per-case **pull** (merged, PR #5)
+  + **triage inbox with AI suggestions** (`feat/email-triage`). See §2.
+  Remaining Outlook polish: pagination / time-window on large mailboxes;
+  background (async) summarisation + suggestion; cross-dedupe the
+  per-case pull and triage (which messages appear); and eventually a
   **change-notification webhook** for continuous sync (needs a public
   HTTPS endpoint → a deploy).
 - **WhatsApp Business sandbox webhook.** Verify, parse, route to the
   right case (by phone number lookup against `clients.phone`), create
   a `source` row.
-- **Routing rules.** Inbound messages (esp. future push/webhook ones)
-  that match no client need an "unassigned" inbox / triage path.
+- **Routing rules — partly done.** The triage inbox is the manual /
+  AI-assisted routing path. Still open: a **per-case email alias**
+  (forward/BCC routing) and conversation-first auto-pull as power-user
+  shortcuts.
 
 ### Phase B — solicitor-grade polish
 

@@ -36,6 +36,13 @@
       "when": 1781038813478,
       "tag": "0004_awesome_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781100072904,
+      "tag": "0005_good_amazoness",
+      "breakpoints": true
     }
   ]
 }

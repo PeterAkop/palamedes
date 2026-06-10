@@ -319,12 +319,72 @@ export const integrationTokens = pgTable(
 export type IntegrationToken = typeof integrationTokens.$inferSelect;
 export type NewIntegrationToken = typeof integrationTokens.$inferInsert;
 
+// --- Mailbox triage -------------------------------------------------------
+
+// Triage candidates: recent mailbox messages pulled for routing, before
+// the lawyer commits them to a case. Distinct from `sources` (which are
+// committed case material) — a triage item only becomes a `source` when
+// assigned. Keyed `(owner_id, external_id)` so re-syncing never
+// resurfaces an already-seen message (pending/assigned/ignored alike).
+// Haiku fills `suggested_case_id` + `suggestion_reason`; the lawyer
+// always confirms (decision support, not automation).
+
+export const MAILBOX_STATUSES = ['pending', 'assigned', 'ignored'] as const;
+export type MailboxStatus = (typeof MAILBOX_STATUSES)[number];
+
+export const mailboxMessages = pgTable(
+  'mailbox_messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerId: text('owner_id').notNull(),
+    provider: text('provider').notNull(),
+
+    // Graph message id (dedup key) + conversation id (thread grouping).
+    externalId: text('external_id').notNull(),
+    conversationId: text('conversation_id'),
+
+    fromAddress: text('from_address'),
+    fromName: text('from_name'),
+    subject: text('subject'),
+    receivedAt: timestamp('received_at', { withTimezone: true }),
+    // bodyPreview only — the full body is fetched from Graph on assign,
+    // so the triage table stays lean.
+    snippet: text('snippet'),
+
+    status: text('status').notNull().default('pending'),
+    // The case it was routed to (assigned items). SET NULL if that case
+    // is later deleted.
+    assignedCaseId: uuid('assigned_case_id').references(() => cases.id, {
+      onDelete: 'set null',
+    }),
+    // Haiku's suggestion + a one-line why.
+    suggestedCaseId: uuid('suggested_case_id').references(() => cases.id, {
+      onDelete: 'set null',
+    }),
+    suggestionReason: text('suggestion_reason'),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('mailbox_messages_owner_external_idx').on(t.ownerId, t.externalId),
+    index('mailbox_messages_owner_status_idx').on(t.ownerId, t.status),
+    index('mailbox_messages_owner_conversation_idx').on(t.ownerId, t.conversationId),
+    check('mailbox_messages_provider_check', sql`${t.provider} IN ('outlook')`),
+    check('mailbox_messages_status_check', sql`${t.status} IN ('pending','assigned','ignored')`),
+  ],
+);
+
+export type MailboxMessage = typeof mailboxMessages.$inferSelect;
+export type NewMailboxMessage = typeof mailboxMessages.$inferInsert;
+
 // --- Re-export combined for convenience in `db.ts`. -----------------------
 
 export const tables = {
   clients,
   cases,
   sources,
+  mailboxMessages,
   generations,
   generationMessages,
   integrationTokens,
