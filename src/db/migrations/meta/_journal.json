@@ -43,6 +43,13 @@
       "when": 1781100072904,
       "tag": "0005_good_amazoness",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781106092062,
+      "tag": "0006_far_wild_pack",
+      "breakpoints": true
     }
   ]
 }
