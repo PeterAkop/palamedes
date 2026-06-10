@@ -20,6 +20,7 @@ async function graphGet<T>(accessToken: string, path: string): Promise<T> {
 // Shape of the Graph message fields we $select.
 interface GraphMessage {
   id: string;
+  conversationId?: string;
   subject?: string;
   from?: { emailAddress?: { name?: string; address?: string } };
   receivedDateTime?: string;
@@ -29,11 +30,23 @@ interface GraphMessage {
 
 export interface OutlookMessage {
   id: string; // Graph message id — used as sources.external_id for dedup
+  conversationId?: string;
   subject: string;
   fromName?: string;
   fromAddress?: string;
   receivedDateTime?: string;
   bodyText: string;
+}
+
+// Lighter shape for the triage sync — no full body (fetched on assign).
+export interface RecentMessage {
+  id: string;
+  conversationId?: string;
+  subject: string;
+  fromName?: string;
+  fromAddress?: string;
+  receivedDateTime?: string;
+  snippet: string;
 }
 
 // The connected mailbox address — stored as account_email for the UI.
@@ -60,8 +73,43 @@ export async function listMessagesForEmail(
     accessToken,
     `/me/messages?$search=${search}&$top=${top}&$select=${select}`,
   );
+  return (data.value ?? []).map(toOutlookMessage);
+}
+
+// The N most-recent mailbox messages (any sender) for the triage inbox.
+// Ordered by date; body excluded to keep it light (full body is fetched
+// on assign via getMessageById).
+export async function listRecentMessages(accessToken: string, top = 50): Promise<RecentMessage[]> {
+  const select = 'id,conversationId,subject,from,receivedDateTime,bodyPreview';
+  const data = await graphGet<{ value?: GraphMessage[] }>(
+    accessToken,
+    `/me/messages?$top=${top}&$orderby=receivedDateTime%20desc&$select=${select}`,
+  );
   return (data.value ?? []).map((m) => ({
     id: m.id,
+    conversationId: m.conversationId,
+    subject: m.subject?.trim() || '(no subject)',
+    fromName: m.from?.emailAddress?.name,
+    fromAddress: m.from?.emailAddress?.address,
+    receivedDateTime: m.receivedDateTime,
+    snippet: (m.bodyPreview ?? '').trim(),
+  }));
+}
+
+// One full message by id — used on assign to get the body for the source.
+export async function getMessageById(accessToken: string, id: string): Promise<OutlookMessage> {
+  const select = 'id,conversationId,subject,from,receivedDateTime,bodyPreview,body';
+  const m = await graphGet<GraphMessage>(
+    accessToken,
+    `/me/messages/${encodeURIComponent(id)}?$select=${select}`,
+  );
+  return toOutlookMessage(m);
+}
+
+function toOutlookMessage(m: GraphMessage): OutlookMessage {
+  return {
+    id: m.id,
+    conversationId: m.conversationId,
     subject: m.subject?.trim() || '(no subject)',
     fromName: m.from?.emailAddress?.name,
     fromAddress: m.from?.emailAddress?.address,
@@ -71,7 +119,7 @@ export async function listMessagesForEmail(
         ? (m.body?.content ?? '')
         : (m.body?.content ?? m.bodyPreview ?? ''),
     ),
-  }));
+  };
 }
 
 // Cheap HTML→text for email bodies — strips tags/entities so the

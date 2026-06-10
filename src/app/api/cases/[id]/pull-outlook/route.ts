@@ -4,7 +4,7 @@ import { cases, clients, db, sources } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
 import { listMessagesForEmail } from '@/lib/outlook/graph';
 import { getValidAccessToken } from '@/lib/outlook/tokens';
-import { summarizePastedMessage } from '@/lib/sources/summarize';
+import { createEmailSourceFromOutlook } from '@/lib/sources/fromEmail';
 
 // POST /api/cases/[id]/pull-outlook — pull emails to/from the case's
 // client address from the connected Outlook mailbox, create `email`
@@ -57,49 +57,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const seen = new Set(existingRows.map((e) => e.externalId));
   const fresh = messages.filter((m) => !seen.has(m.id));
 
-  let imported = 0;
   for (const m of fresh) {
-    const from = m.fromAddress ?? m.fromName;
-    const [inserted] = await db
-      .insert(sources)
-      .values({
-        caseId: row.caseId,
-        ownerId,
-        kind: 'email',
-        title: m.subject,
-        contentPreview: m.bodyText.slice(0, 300),
-        sourceReceivedAt: m.receivedDateTime ? new Date(m.receivedDateTime) : null,
-        // origin tag → "Outlook" badge in the Sources tab.
-        metadata: { origin: 'outlook', from, subject: m.subject },
-        externalId: m.id,
-        status: 'processing',
-      })
-      .returning({ id: sources.id });
-
-    try {
-      const { summary, model } = await summarizePastedMessage({
-        kind: 'email',
-        title: m.subject,
-        body: m.bodyText,
-        from,
-        subject: m.subject,
-      });
-      await db
-        .update(sources)
-        .set({ status: 'ready', aiSummary: summary, aiSummaryModel: model, updatedAt: new Date() })
-        .where(eq(sources.id, inserted.id));
-    } catch (err) {
-      await db
-        .update(sources)
-        .set({
-          status: 'failed',
-          errorMessage: err instanceof Error ? err.message : 'summary failed',
-          updatedAt: new Date(),
-        })
-        .where(eq(sources.id, inserted.id));
-    }
-    imported += 1;
+    await createEmailSourceFromOutlook({ caseId: row.caseId, ownerId, message: m });
   }
 
-  return NextResponse.json({ imported, skipped: messages.length - fresh.length });
+  return NextResponse.json({ imported: fresh.length, skipped: messages.length - fresh.length });
 }
