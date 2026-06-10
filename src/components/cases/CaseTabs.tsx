@@ -271,24 +271,26 @@ function SourceRow({ source }: { source: Source }) {
   const Icon = SOURCE_KIND_ICON[source.kind];
   return (
     <details className="collapse collapse-arrow bg-base-100 border border-base-300">
-      <summary className="collapse-title flex items-center gap-3 pr-10 py-2.5 min-h-0 cursor-pointer">
-        <Icon className="h-4 w-4 shrink-0 text-base-content/50" />
-        <span className="font-medium truncate min-w-0 flex-1">{source.title}</span>
-        {source.metadata?.origin === 'outlook' && (
-          <span
-            className="badge badge-outline badge-xs gap-1 shrink-0"
-            title="Imported from Outlook"
-          >
-            <Mail className="h-3 w-3" />
-            Outlook
+      <summary className="collapse-title !py-2.5 min-h-0 pr-10 cursor-pointer">
+        <div className="flex items-center gap-3">
+          <Icon className="h-4 w-4 shrink-0 text-base-content/50" />
+          <span className="font-medium truncate min-w-0 flex-1">{source.title}</span>
+          {source.metadata?.origin === 'outlook' && (
+            <span
+              className="badge badge-outline badge-xs gap-1 shrink-0"
+              title="Imported from Outlook"
+            >
+              <Mail className="h-3 w-3" />
+              Outlook
+            </span>
+          )}
+          <SourceStatusBadge status={source.status} />
+          <span className="text-xs text-base-content/60 shrink-0 whitespace-nowrap">
+            {SOURCE_KIND_LABEL[source.kind]}
+            {source.sourceReceivedAt && ` · ${formatShortDate(source.sourceReceivedAt)}`}
           </span>
-        )}
-        <SourceStatusBadge status={source.status} />
-        <span className="text-xs text-base-content/60 shrink-0 ml-auto whitespace-nowrap">
-          {SOURCE_KIND_LABEL[source.kind]}
-          {source.sourceReceivedAt && ` · ${formatShortDate(source.sourceReceivedAt)}`}
-        </span>
-        <SourceActions sourceId={source.id} status={source.status} />
+          <SourceActions sourceId={source.id} status={source.status} />
+        </div>
       </summary>
       <div className="collapse-content !pb-3 space-y-2 text-sm">
         <SourceMeta metadata={source.metadata} />
