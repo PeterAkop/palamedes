@@ -1,40 +1,29 @@
-import { type NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import NextAuth from 'next-auth';
+import { authConfig } from '@/auth.config';
 
-// Fence — keeps casual URL-havers out of the deployed app while we build.
-// Not real auth. Replace with session-based auth (Clerk / Supabase /
-// Auth.js) when Phase C lands.
+// Auth fence — Auth.js (replaces the old HTTP Basic Auth). Unauthenticated
+// requests to any app route are redirected to /sign-in. Public: the
+// sign-in page and the Auth.js endpoints (/api/auth/*) — everything else,
+// including the Outlook OAuth callback and the API, requires a session.
+//
+// Uses the edge-safe config (no DB adapter) so it runs in middleware.
 
-const REALM = 'palamedes';
+const { auth } = NextAuth(authConfig);
 
-export function middleware(req: NextRequest) {
-  const user = process.env.BASIC_USER;
-  const pass = process.env.BASIC_PASS;
+export default auth((req) => {
+  const { nextUrl } = req;
+  const isLoggedIn = Boolean(req.auth);
+  const isPublic =
+    nextUrl.pathname.startsWith('/sign-in') || nextUrl.pathname.startsWith('/api/auth');
 
-  // Fail closed if creds aren't configured — never let a missing env var
-  // turn into an accidentally-known default password.
-  if (!user || !pass) {
-    return new NextResponse('Auth not configured', { status: 503 });
+  if (!isLoggedIn && !isPublic) {
+    return NextResponse.redirect(new URL('/sign-in', nextUrl.origin));
   }
+  return NextResponse.next();
+});
 
-  const header = req.headers.get('authorization');
-  const expected = `Basic ${btoa(`${user}:${pass}`)}`;
-
-  if (header === expected) {
-    return NextResponse.next();
-  }
-
-  return new NextResponse('Authentication required', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': `Basic realm="${REALM}", charset="UTF-8"`,
-    },
-  });
-}
-
-// Gate everything except Next's static assets and the favicon.
-// API routes are intentionally included so file uploads / webhooks are
-// also fenced. (Real webhook integrations in Phase A.2 will need a
-// per-endpoint exception once we know the public ingestion URLs.)
+// Gate everything except Next's static assets and the icon.
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon.svg).*)'],
 };
