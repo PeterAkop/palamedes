@@ -1,5 +1,11 @@
 # Auth & multi-user (Auth.js / NextAuth v5) — plan
 
+> **Status: IMPLEMENTED** on `feat/auth` (not yet verified end-to-end —
+> needs migration 0006, AUTH_* env, and the Azure redirect URI). Login
+> method chosen: **Microsoft Entra ("Sign in with Microsoft")**. Team/firm
+> sharing remains out of scope (v1 = per-user isolation).
+
+
 Phase C. Replace the single shared Basic Auth fence with **real per-user
 auth**, so each solicitor logs in and sees only their own cases, sources,
 generations, mailbox, and triage. Self-hosted with **Auth.js (NextAuth

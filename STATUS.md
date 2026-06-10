@@ -5,7 +5,7 @@ and what's still to build. Update this whenever a meaningful slice
 lands; reviewers should be able to read this in 5 minutes and know what
 they're walking into.
 
-_Last updated: 2026-06-10 — **Phase A.1 + Outlook pull + settings on `main`; triage in flight.** Merged: A.1, the Outlook per-case pull (PR #5, delegated OAuth + encrypted tokens), and the settings page (PR #6). In flight on `feat/email-triage`: the **mailbox triage inbox with Haiku case suggestions** (sync recent mail → suggest → assign/ignore, idempotent) + a Cases header link — migration 0005 to apply. See §2 "Outlook integration — how the pull works" and "Email triage — how it works"._
+_Last updated: 2026-06-10 — **A.1 + Outlook (pull + triage) on `main`; real auth in flight.** Merged: A.1, the Outlook per-case pull (PR #5), settings (PR #6), and the **mailbox triage inbox with Haiku suggestions** (PR #7). In flight on `feat/auth`: **real per-user auth via Auth.js — "Sign in with Microsoft"** (Drizzle adapter → users in our own Postgres; JWT sessions; middleware replaces the Basic Auth fence; `getCurrentUserId()` now reads the session). Migrations 0005/0006 to apply; AUTH_* env to set. See §3 "Real auth"._
 
 ---
 
@@ -429,7 +429,9 @@ still show in triage — just Ignore it).
 
 | Path | What lives here |
 |---|---|
-| `src/middleware.ts` | HTTP Basic Auth fence (fail-closed on missing env). |
+| `src/middleware.ts` | Auth.js fence — redirects unauthenticated requests to `/sign-in`. |
+| `src/auth.ts` + `src/auth.config.ts` | Auth.js (NextAuth v5): Microsoft Entra provider, Drizzle adapter, JWT sessions. Split config (edge-safe vs adapter). |
+| `src/app/sign-in/page.tsx` + `src/app/api/auth/[...nextauth]/` | Sign-in page + Auth.js route handler. |
 | `src/lib/auth.ts` | `getCurrentUserId()` — fence stand-in until real auth. |
 | `src/app/` | Routes. `cases/layout.tsx` owns the sidebar; `cases/[id]/page.tsx` the detail view. |
 | `src/components/cases/` | `CaseSidebar`, `CaseTabs` (Overview / Sources / Tools), `AddNoteButton`, `UploadButton`, `PasteButton`, `SourceActions`, `RegenerateSummaryButton`, `NewCaseButton`, `DeleteCaseButton`, `ToolRunner`, `OutlookCaseActions`. Client components for URL-state, source ingestion, summaries, case create/delete, tool runs, and Outlook connect/pull. |
@@ -680,12 +682,20 @@ chat-on-generation). Remaining A.1 polish, none blocking:
   variants; appeal grounds variants.
 - Deadlines view (calendar / list) with reminders.
 - **Bundle PDF export** — assemble the case bundle for tribunals.
-- **Real auth.** Open decision between Neon Auth (Stack Auth), Clerk,
-  Auth.js, and Supabase Auth. `owner_id: text` accommodates any of
-  them; the only code change is `getCurrentUserId()`. See "Neon Auth"
-  digression below.
-- Real multi-tenancy beyond the single fence user (firms with multiple
-  solicitors; client portals out of scope for now).
+- **Real auth — IN PROGRESS** (`feat/auth`, see `plan-auth.md`). Chose
+  **Auth.js (NextAuth v5)** with the **Drizzle adapter** — users live in
+  *our own Postgres* (portable across DB providers, no vendor; the key
+  reason over Clerk/Neon Auth given a possible future move off Neon).
+  **"Sign in with Microsoft"** (Entra — natural M365 fit; the Outlook
+  Azure app can host sign-in too via the `/api/auth/callback/microsoft-entra-id`
+  redirect URI). JWT sessions; middleware replaces the Basic Auth fence;
+  `getCurrentUserId()` reads `session.user.id`. `owner_id: text` already
+  holds the user id — no change to existing tables. `scripts/claim-fence-data.mjs`
+  reassigns the old `fence-user` data to a real user. Migration 0006
+  (auth tables) + AUTH_* env + the Azure redirect URI to apply.
+- **Firm/team sharing** — multiple solicitors sharing cases via an
+  `org_id`/membership layer. Out of scope for v1 auth (per-user
+  isolation); the next phase. Client portals still out of scope.
 
 ### Cross-cutting / not phase-bound
 
