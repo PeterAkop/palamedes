@@ -1,5 +1,12 @@
 # Outlook (Microsoft Graph) integration — POC plan
 
+> **Status: IMPLEMENTED** on `feat/outlook-integration` (working locally,
+> branch not yet merged; migration 0004 to apply). This file is the
+> original plan, kept for the Azure-setup steps and rationale. For how
+> the built integration actually works, see **STATUS.md §2 "Outlook
+> integration — how the pull works"**.
+
+
 Phase A.2, first channel. **Pull-on-demand only** — no cron, no webhooks
 yet. Each case gets a **"Pull from Outlook"** button that fetches emails
 to/from the case client's email address, creates `email` source rows,
