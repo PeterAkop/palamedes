@@ -18,11 +18,13 @@ export async function GET(req: NextRequest) {
   const returnTo = req.cookies.get('ms_oauth_return')?.value ?? '/cases';
 
   const back = (status: 'connected' | 'error') => {
-    // Invalidate the /cases cache so the page the user lands on re-renders
+    // Invalidate the caches so the page the user lands on re-renders
     // server-side with the new connection state — without this, Next 14.2's
     // Router Cache (experimental.staleTimes) serves the pre-connect page and
     // the header stays on "Connect Outlook". Same fix as revalidateCases().
+    // Covers both the case headers (/cases) and the settings page.
     revalidatePath('/cases', 'layout');
+    revalidatePath('/settings');
     const url = new URL(returnTo, req.nextUrl.origin);
     url.searchParams.set('outlook', status);
     const res = NextResponse.redirect(url);
