@@ -4,7 +4,8 @@ import { db, sources } from '@/db/db';
 import { anthropic } from '@/lib/anthropic';
 import { uploadSourceFile } from '@/lib/blob';
 import type { OutlookAttachment } from '@/lib/outlook/graph';
-import { summarizeFile } from '@/lib/sources/summarize';
+import { DOCX_MIME, extractDocxText } from '@/lib/sources/docx';
+import { summarizeFile, summarizeNote } from '@/lib/sources/summarize';
 
 // Ingest one email file-attachment as a `file`/`scan` source — the same
 // flow as a manual upload (Vercel Blob + Anthropic Files API + Haiku),
@@ -103,6 +104,21 @@ export async function ingestEmailAttachment(args: {
           updatedAt: new Date(),
         })
         .where(eq(sources.id, inserted.id));
+    } else if (a.contentType === DOCX_MIME) {
+      // .docx → extract text locally, then summarise as text. Empty
+      // extraction (image-only / unparsable doc) stays summary-less.
+      const text = extractDocxText(fileBuffer);
+      const update: Partial<typeof sources.$inferInsert> = {
+        status: 'ready',
+        blobPath: blobUrl,
+        updatedAt: new Date(),
+      };
+      if (text.trim()) {
+        const { summary, model } = await summarizeNote({ title: a.name, body: text });
+        update.aiSummary = summary;
+        update.aiSummaryModel = model;
+      }
+      await db.update(sources).set(update).where(eq(sources.id, inserted.id));
     } else {
       await db
         .update(sources)

@@ -1,4 +1,6 @@
 import type { Source } from '@/db/db';
+import { getSourceFileStream } from '@/lib/blob';
+import { DOCX_MIME, extractDocxText } from '@/lib/sources/docx';
 import {
   type SummarizeResult,
   summarizeFile,
@@ -27,6 +29,19 @@ export async function summarizeSource(row: Source): Promise<SummarizeResult> {
   switch (row.kind) {
     case 'file':
     case 'scan': {
+      // .docx has no Anthropic file id — re-summarize from the stored
+      // blob by extracting its text (same as fresh ingestion).
+      if (metadata.mime_type === DOCX_MIME) {
+        if (!row.blobPath) {
+          throw new Error('Cannot re-summarize docx: no blob stored');
+        }
+        const file = await getSourceFileStream(row.blobPath);
+        if (!file) throw new Error('docx blob unavailable');
+        const buf = Buffer.from(await new Response(file.stream).arrayBuffer());
+        const text = extractDocxText(buf);
+        if (!text.trim()) throw new Error('docx has no extractable text');
+        return summarizeNote({ title: row.title, body: text });
+      }
       if (!row.anthropicFileId) {
         throw new Error('Cannot re-summarize file source: no anthropic_file_id stored');
       }
