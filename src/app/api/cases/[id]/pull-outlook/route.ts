@@ -58,7 +58,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const fresh = messages.filter((m) => !seen.has(m.id));
 
   for (const m of fresh) {
-    await createEmailSourceFromOutlook({ caseId: row.caseId, ownerId, message: m });
+    await createEmailSourceFromOutlook({ caseId: row.caseId, ownerId, message: m, accessToken });
   }
 
   return NextResponse.json({ imported: fresh.length, skipped: messages.length - fresh.length });

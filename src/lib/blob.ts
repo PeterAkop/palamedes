@@ -1,4 +1,4 @@
-import { put } from '@vercel/blob';
+import { get, put } from '@vercel/blob';
 
 // Thin wrapper around `@vercel/blob`. Route handlers call into this
 // rather than importing the SDK directly so future cross-cutting
@@ -41,4 +41,28 @@ export async function uploadSourceFile(args: {
     token: process.env.BLOB_READ_WRITE_TOKEN,
   });
   return { url: result.url, pathname: result.pathname };
+}
+
+export interface BlobStream {
+  stream: ReadableStream<Uint8Array>;
+  contentType: string;
+  size: number;
+}
+
+// Read a private source blob back by its stored URL, authenticated with
+// the read-write token. Returns a stream + content metadata for a route
+// handler to pipe straight to the browser ("Open file"). Returns null
+// if the blob no longer exists. Server-only — never expose the token or
+// the raw private URL to the client.
+export async function getSourceFileStream(blobUrl: string): Promise<BlobStream | null> {
+  const result = await get(blobUrl, {
+    access: 'private',
+    token: process.env.BLOB_READ_WRITE_TOKEN,
+  });
+  if (!result || result.statusCode !== 200) return null;
+  return {
+    stream: result.stream,
+    contentType: result.blob.contentType,
+    size: result.blob.size,
+  };
 }

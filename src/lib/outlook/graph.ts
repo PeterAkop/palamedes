@@ -26,6 +26,7 @@ interface GraphMessage {
   receivedDateTime?: string;
   bodyPreview?: string;
   body?: { contentType?: string; content?: string };
+  hasAttachments?: boolean;
 }
 
 export interface OutlookMessage {
@@ -36,6 +37,30 @@ export interface OutlookMessage {
   fromAddress?: string;
   receivedDateTime?: string;
   bodyText: string;
+  hasAttachments: boolean; // whether to fetch /attachments on ingest
+}
+
+// A file attachment on a message. Only real file attachments
+// (`#microsoft.graph.fileAttachment`) carry `contentBytes` (base64);
+// itemAttachment / referenceAttachment are filtered out — we can't turn
+// those into source files without extra Graph round-trips.
+export interface OutlookAttachment {
+  id: string; // Graph attachment id — part of the source external_id
+  name: string;
+  contentType: string;
+  size: number;
+  isInline: boolean;
+  contentBytes: string; // base64-encoded file bytes
+}
+
+interface GraphAttachment {
+  '@odata.type'?: string;
+  id: string;
+  name?: string;
+  contentType?: string;
+  size?: number;
+  isInline?: boolean;
+  contentBytes?: string;
 }
 
 // Lighter shape for the triage sync — no full body (fetched on assign).
@@ -68,7 +93,7 @@ export async function listMessagesForEmail(
   top = 50,
 ): Promise<OutlookMessage[]> {
   const search = encodeURIComponent(`"${email}"`);
-  const select = 'id,subject,from,receivedDateTime,bodyPreview,body';
+  const select = 'id,subject,from,receivedDateTime,bodyPreview,body,hasAttachments';
   const data = await graphGet<{ value?: GraphMessage[] }>(
     accessToken,
     `/me/messages?$search=${search}&$top=${top}&$select=${select}`,
@@ -98,12 +123,35 @@ export async function listRecentMessages(accessToken: string, top = 50): Promise
 
 // One full message by id — used on assign to get the body for the source.
 export async function getMessageById(accessToken: string, id: string): Promise<OutlookMessage> {
-  const select = 'id,conversationId,subject,from,receivedDateTime,bodyPreview,body';
+  const select = 'id,conversationId,subject,from,receivedDateTime,bodyPreview,body,hasAttachments';
   const m = await graphGet<GraphMessage>(
     accessToken,
     `/me/messages/${encodeURIComponent(id)}?$select=${select}`,
   );
   return toOutlookMessage(m);
+}
+
+// File attachments on a message. Only `fileAttachment`s with inline
+// base64 `contentBytes` are returned (the shape we can store) — inline
+// signature images are included here but the caller filters them out.
+export async function listMessageAttachments(
+  accessToken: string,
+  messageId: string,
+): Promise<OutlookAttachment[]> {
+  const data = await graphGet<{ value?: GraphAttachment[] }>(
+    accessToken,
+    `/me/messages/${encodeURIComponent(messageId)}/attachments`,
+  );
+  return (data.value ?? [])
+    .filter((a) => a['@odata.type'] === '#microsoft.graph.fileAttachment' && a.contentBytes)
+    .map((a) => ({
+      id: a.id,
+      name: a.name?.trim() || 'attachment',
+      contentType: a.contentType || 'application/octet-stream',
+      size: a.size ?? 0,
+      isInline: a.isInline ?? false,
+      contentBytes: a.contentBytes as string,
+    }));
 }
 
 function toOutlookMessage(m: GraphMessage): OutlookMessage {
@@ -119,6 +167,7 @@ function toOutlookMessage(m: GraphMessage): OutlookMessage {
         ? (m.body?.content ?? '')
         : (m.body?.content ?? m.bodyPreview ?? ''),
     ),
+    hasAttachments: m.hasAttachments ?? false,
   };
 }
 

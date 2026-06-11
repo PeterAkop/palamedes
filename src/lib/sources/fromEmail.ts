@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { db, sources } from '@/db/db';
-import type { OutlookMessage } from '@/lib/outlook/graph';
+import { listMessageAttachments, type OutlookMessage } from '@/lib/outlook/graph';
+import { ingestEmailAttachment } from '@/lib/sources/attachments';
 import { summarizePastedMessage } from '@/lib/sources/summarize';
 
 // Create an `email` source from an Outlook message: insert (`processing`)
@@ -8,6 +9,11 @@ import { summarizePastedMessage } from '@/lib/sources/summarize';
 // `origin: 'outlook'` with the Graph message id as `external_id` for
 // dedup. Shared by the per-case pull (`pull-outlook`) and triage-assign
 // so both ingest emails identically.
+//
+// If the message has file attachments and an `accessToken` is provided,
+// each attachment is also ingested as its own `file`/`scan` source (see
+// `ingestEmailAttachment`). Attachment ingest only runs when the email
+// is freshly created, so re-pulls don't re-add them.
 //
 // **Idempotent**: if this message (`external_id`) is already a source on
 // the case, it's a no-op (returns `false`). This is the single dedup
@@ -18,8 +24,9 @@ export async function createEmailSourceFromOutlook(args: {
   caseId: string;
   ownerId: string;
   message: OutlookMessage;
+  accessToken?: string;
 }): Promise<boolean> {
-  const { caseId, ownerId, message: m } = args;
+  const { caseId, ownerId, message: m, accessToken } = args;
   const from = m.fromAddress ?? m.fromName;
 
   const [already] = await db
@@ -66,5 +73,22 @@ export async function createEmailSourceFromOutlook(args: {
       })
       .where(eq(sources.id, inserted.id));
   }
+
+  // Ingest file attachments as their own sources. Inline images (e.g.
+  // signature logos) are skipped. A failure here is swallowed per
+  // attachment inside ingestEmailAttachment, and the whole block is
+  // guarded so a Graph hiccup never undoes the email source itself.
+  if (accessToken && m.hasAttachments) {
+    try {
+      const attachments = await listMessageAttachments(accessToken, m.id);
+      for (const att of attachments) {
+        if (att.isInline) continue;
+        await ingestEmailAttachment({ caseId, ownerId, emailExternalId: m.id, attachment: att });
+      }
+    } catch {
+      // attachment ingest is best-effort; the email source already exists
+    }
+  }
+
   return true;
 }

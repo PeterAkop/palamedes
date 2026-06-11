@@ -35,5 +35,6 @@ function toViewSource(row: typeof sources.$inferSelect): ViewSource {
     status: row.status as SourceStatus,
     aiSummary: row.aiSummary ?? undefined,
     errorMessage: row.errorMessage ?? undefined,
+    hasFile: Boolean(row.blobPath),
   };
 }

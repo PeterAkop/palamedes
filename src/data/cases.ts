@@ -39,6 +39,9 @@ export interface Source {
   // Populated only when status === 'failed'. Surfaced in the source
   // card so the lawyer can see why processing failed before retrying.
   errorMessage?: string;
+  // True when a backing file is stored in Blob (uploads + email
+  // attachments) — gates the "Open file" action in the UI.
+  hasFile?: boolean;
 }
 
 export interface GenerationMessage {
