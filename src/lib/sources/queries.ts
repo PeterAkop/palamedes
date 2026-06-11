@@ -13,7 +13,7 @@ import { getCurrentUserId } from '@/lib/auth';
 // at the top of the Sources tab — matches "what just came in" UX.
 
 export async function listSourcesForCase(caseId: string): Promise<ViewSource[]> {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
   const rows = await db
     .select()
     .from(sources)

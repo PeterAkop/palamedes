@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
     const tokens = await exchangeCodeForTokens(code);
     const accountEmail = await getConnectedEmail(tokens.access_token).catch(() => undefined);
     await saveTokens({
-      ownerId: getCurrentUserId(),
+      ownerId: await getCurrentUserId(),
       provider: 'outlook',
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,

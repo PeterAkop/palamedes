@@ -1,21 +1,18 @@
-// Placeholder auth — replaced when real auth lands (Phase C).
-//
-// Every request today comes from "the lawyer" behind the HTTP Basic
-// Auth fence (src/middleware.ts). There is no real per-user session
-// yet, so every client / case / source / generation gets the same
-// owner.
-//
-// When real auth lands:
-//   - Read the session (cookie or provider SDK).
-//   - Return the authenticated user's id (Supabase uuid, Clerk
-//     `user_…`, etc.) — the column type is `text` so any of those work.
-//   - Make this async if the provider's session lookup is async.
-//
-// API routes and server components call `getCurrentUserId()` and never
-// need to know whether it's a real user or the fence stand-in.
+import { auth } from '@/auth';
 
-const FENCE_USER_ID = 'fence-user';
-
-export function getCurrentUserId(): string {
-  return FENCE_USER_ID;
+// Per-user identity. Reads the Auth.js session and returns the signed-in
+// user's id (`users.id`, a text id from the Microsoft Entra sign-in).
+// Every owner-scoped query / route calls this; the rest of the app never
+// needs to know how the id is obtained.
+//
+// Async because the session lookup is async. Throws if there's no
+// session — but the middleware (src/middleware.ts) protects every app
+// route, so authenticated code always has one. Callers that may run
+// unauthenticated (e.g. the header on /sign-in) wrap this in a `.catch`.
+export async function getCurrentUserId(): Promise<string> {
+  const session = await auth();
+  if (!session?.user?.id) {
+    throw new Error('not_authenticated');
+  }
+  return session.user.id;
 }

@@ -13,7 +13,7 @@ import { summarizeSource } from '@/lib/sources/process';
 export const runtime = 'nodejs';
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   const rows = await db
     .select()

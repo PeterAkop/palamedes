@@ -15,7 +15,7 @@ import { summarizeCase } from '@/lib/sources/summarize';
 export const runtime = 'nodejs';
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   const caseRows = await db
     .select({ id: cases.id, title: cases.title, caseType: cases.caseType })

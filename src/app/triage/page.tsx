@@ -11,7 +11,7 @@ import { listCaseOptions, listPendingTriage } from '@/lib/triage/queries';
 export const dynamic = 'force-dynamic';
 
 export default async function TriagePage() {
-  const outlook = await getConnection(getCurrentUserId(), 'outlook').catch(() => ({
+  const outlook = await getConnection(await getCurrentUserId(), 'outlook').catch(() => ({
     connected: false as const,
     accountEmail: undefined,
   }));

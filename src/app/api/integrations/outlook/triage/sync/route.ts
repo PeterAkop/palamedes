@@ -17,7 +17,7 @@ export const runtime = 'nodejs';
 const SYNC_LIMIT = 25;
 
 export async function POST() {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   let token: string;
   try {

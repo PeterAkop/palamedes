@@ -6,6 +6,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -378,6 +379,66 @@ export const mailboxMessages = pgTable(
 export type MailboxMessage = typeof mailboxMessages.$inferSelect;
 export type NewMailboxMessage = typeof mailboxMessages.$inferInsert;
 
+// --- Auth.js (NextAuth) ---------------------------------------------------
+
+// Standard Auth.js Drizzle-adapter tables — users / accounts / sessions /
+// verification_tokens. Owned here in our schema (not a vendor), so they
+// migrate with the DB. Column names follow the adapter's expectations
+// (camelCase). `users.id` (text) is what every other table's `owner_id`
+// references once real auth replaces the fence stand-in. JWT session
+// strategy is used, so `sessions` is unused at runtime but kept for
+// adapter completeness.
+
+export const users = pgTable('user', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text('name'),
+  email: text('email').notNull(),
+  emailVerified: timestamp('emailVerified', { mode: 'date', withTimezone: true }),
+  image: text('image'),
+});
+
+export const accounts = pgTable(
+  'account',
+  {
+    userId: text('userId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    provider: text('provider').notNull(),
+    providerAccountId: text('providerAccountId').notNull(),
+    refresh_token: text('refresh_token'),
+    access_token: text('access_token'),
+    expires_at: integer('expires_at'),
+    token_type: text('token_type'),
+    scope: text('scope'),
+    id_token: text('id_token'),
+    session_state: text('session_state'),
+  },
+  (t) => [primaryKey({ columns: [t.provider, t.providerAccountId] })],
+);
+
+export const sessions = pgTable('session', {
+  sessionToken: text('sessionToken').primaryKey(),
+  userId: text('userId')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  expires: timestamp('expires', { mode: 'date', withTimezone: true }).notNull(),
+});
+
+export const verificationTokens = pgTable(
+  'verificationToken',
+  {
+    identifier: text('identifier').notNull(),
+    token: text('token').notNull(),
+    expires: timestamp('expires', { mode: 'date', withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.identifier, t.token] })],
+);
+
+export type User = typeof users.$inferSelect;
+
 // --- Re-export combined for convenience in `db.ts`. -----------------------
 
 export const tables = {
@@ -388,4 +449,8 @@ export const tables = {
   generations,
   generationMessages,
   integrationTokens,
+  users,
+  accounts,
+  sessions,
+  verificationTokens,
 };

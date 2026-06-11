@@ -6,7 +6,7 @@ import { getCurrentUserId } from '@/lib/auth';
 // Owner-scoped reads for the triage inbox.
 
 export async function listPendingTriage(): Promise<TriageItem[]> {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
   const rows = await db
     .select()
     .from(mailboxMessages)
@@ -27,7 +27,7 @@ export async function listPendingTriage(): Promise<TriageItem[]> {
 
 // All of the owner's cases as assignable options (dropdown + label lookup).
 export async function listCaseOptions(): Promise<CaseOption[]> {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
   const rows = await db
     .select({ id: cases.id, title: cases.title, surname: clients.lastName })
     .from(cases)
@@ -38,7 +38,7 @@ export async function listCaseOptions(): Promise<CaseOption[]> {
 }
 
 export async function countPendingTriage(): Promise<number> {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
   const rows = await db
     .select({ id: mailboxMessages.id })
     .from(mailboxMessages)

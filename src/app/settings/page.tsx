@@ -11,7 +11,7 @@ import { getConnection } from '@/lib/outlook/tokens';
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
-  const outlook = await getConnection(getCurrentUserId(), 'outlook').catch(() => ({
+  const outlook = await getConnection(await getCurrentUserId(), 'outlook').catch(() => ({
     connected: false as const,
     accountEmail: undefined,
   }));

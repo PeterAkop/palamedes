@@ -20,7 +20,7 @@ export const runtime = 'nodejs';
 const PULL_LIMIT = 25;
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   const [row] = await db
     .select({ caseId: cases.id, clientEmail: clients.email })

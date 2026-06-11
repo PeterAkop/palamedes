@@ -14,7 +14,7 @@ import { getCurrentUserId } from '@/lib/auth';
 // run order; messages within a generation are oldest-first (draft
 // request → draft → refinements).
 export async function listGenerationsForCase(caseId: string): Promise<ViewGeneration[]> {
-  const ownerId = getCurrentUserId();
+  const ownerId = await getCurrentUserId();
 
   const genRows = await db
     .select()
