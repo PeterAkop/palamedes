@@ -77,7 +77,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // Idempotent: returns false if the email is already a source on the
       // case (no duplicate). The item is still marked assigned — it's
       // resolved either way, just not duplicated.
-      const wasCreated = await createEmailSourceFromOutlook({ caseId, ownerId, message });
+      const wasCreated = await createEmailSourceFromOutlook({
+        caseId,
+        ownerId,
+        message,
+        accessToken: token,
+      });
       await db
         .update(mailboxMessages)
         .set({ status: 'assigned', assignedCaseId: caseId, updatedAt: new Date() })
