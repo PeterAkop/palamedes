@@ -3,6 +3,7 @@
 import {
   Calendar,
   CheckCircle2,
+  ExternalLink,
   Files,
   FileText,
   Hash,
@@ -294,6 +295,7 @@ function SourceRow({ source }: { source: Source }) {
       </summary>
       <div className="collapse-content !pb-3 space-y-2 text-sm">
         <SourceMeta metadata={source.metadata} />
+        {source.hasFile && <FileCard source={source} />}
         {source.status === 'failed' && source.errorMessage && (
           <div className="alert alert-error text-xs py-2">
             <span>
@@ -311,14 +313,58 @@ function SourceRow({ source }: { source: Source }) {
             </p>
             <p className="text-base-content/80 leading-relaxed">{source.aiSummary}</p>
           </div>
-        ) : (
+        ) : source.status === 'processing' ? (
           <p className="text-base-content/50 italic">
             AI summary will appear here once the source is processed.
           </p>
-        )}
+        ) : source.status === 'ready' ? (
+          <p className="text-base-content/50 italic">
+            {source.hasFile
+              ? "No AI summary — this file type isn't auto-summarised. Open the file to view it."
+              : 'No AI summary for this source.'}
+          </p>
+        ) : null}
       </div>
     </details>
   );
+}
+
+// File-specific block for `file` / `scan` sources: type · size and an
+// "Open file" link that streams the private blob through the server.
+function FileCard({ source }: { source: Source }) {
+  const meta = source.metadata ?? {};
+  const mime = meta.mime_type;
+  const size = meta.size_bytes ? formatBytes(Number(meta.size_bytes)) : undefined;
+  const Icon = SOURCE_KIND_ICON[source.kind];
+  return (
+    <div className="flex items-center gap-3 rounded-md border border-base-200 bg-base-200/40 p-2.5">
+      <Icon className="h-5 w-5 shrink-0 text-primary" />
+      <div className="min-w-0 flex-1">
+        <p className="font-medium truncate">{meta.filename ?? source.title}</p>
+        <p className="text-xs text-base-content/60">
+          {[mime, size].filter(Boolean).join(' · ') || 'File'}
+        </p>
+      </div>
+      <a
+        href={`/api/sources/${source.id}`}
+        target="_blank"
+        rel="noreferrer"
+        className="btn btn-xs btn-outline gap-1 shrink-0"
+      >
+        <ExternalLink className="h-3 w-3" />
+        Open file
+      </a>
+    </div>
+  );
+}
+
+// Human-readable byte size for file metadata (e.g. "37.5 KB").
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** i;
+  return `${i === 0 ? value : value.toFixed(1)} ${units[i]}`;
 }
 
 // Renders the correspondence metadata stored on email / WhatsApp
