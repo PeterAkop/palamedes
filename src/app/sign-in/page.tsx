@@ -3,9 +3,12 @@ import { signIn } from '@/auth';
 
 // Public sign-in page (allowed through the middleware). One provider for
 // now — "Sign in with Microsoft" (Entra). The form action is a server
-// action that kicks off the OAuth flow and returns to /cases.
+// action that kicks off the OAuth flow and returns to /cases. Auth.js
+// redirects here with ?error=AccessDenied when the email allowlist
+// rejects a sign-in.
 
-export default function SignInPage() {
+export default function SignInPage({ searchParams }: { searchParams: { error?: string } }) {
+  const denied = searchParams.error === 'AccessDenied';
   return (
     <div className="min-h-screen flex items-center justify-center bg-base-200 px-4">
       <div className="card bg-base-100 border border-base-300 w-full max-w-sm">
@@ -15,6 +18,11 @@ export default function SignInPage() {
             <span className="text-2xl font-bold">Palamedes</span>
           </div>
           <p className="text-sm text-base-content/60">Sign in to your UK immigration casework.</p>
+          {denied && (
+            <div className="alert alert-error text-sm py-2">
+              <span>That account isn’t authorised for this app. Contact the administrator.</span>
+            </div>
+          )}
           <form
             action={async () => {
               'use server';
