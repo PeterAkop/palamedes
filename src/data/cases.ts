@@ -57,6 +57,13 @@ export interface Generation {
   model: string;
   createdAt: string;
   messages: GenerationMessage[];
+  // Send record — present once the draft has been emailed out. `sentAt`
+  // is an ISO string; `sentToClient` is false for the safe
+  // lawyer-mailbox send (feature flag off) and true for a real client
+  // send (flag on).
+  sentAt?: string;
+  sentTo?: string;
+  sentToClient: boolean;
 }
 
 export interface Case {
@@ -77,6 +84,19 @@ export interface Case {
   aiSummaryGeneratedAt?: string;
   sources: Source[];
   generations: Generation[];
+}
+
+// Config for the "send letter" action on the Tools tab. Resolved on the
+// server (feature flag + Outlook connection) and passed to the client.
+// `enabled` is the SEND_TO_CLIENT_ENABLED flag — off means sends are
+// locked to the lawyer's own `mailbox`; on means the lawyer may pick a
+// recipient from `clientCandidates` (client email + grabbed email
+// senders) or type their own.
+export interface SendConfig {
+  enabled: boolean;
+  outlookConnected: boolean;
+  mailbox?: string;
+  clientCandidates: string[];
 }
 
 // --- Display helpers -------------------------------------------------------

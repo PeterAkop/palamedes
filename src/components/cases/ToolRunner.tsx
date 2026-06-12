@@ -1,9 +1,9 @@
 'use client';
 
-import { Eye, Pencil, Plus, Send, Sparkles } from 'lucide-react';
+import { CheckCircle2, Eye, Mail, Pencil, Plus, Send, Sparkles } from 'lucide-react';
 import { type FormEvent, useRef, useState } from 'react';
 import { revalidateCases } from '@/app/cases/actions';
-import type { Generation, Source } from '@/data/cases';
+import type { Generation, SendConfig, Source } from '@/data/cases';
 
 // Per-tool runner modal. Generates an Opus draft (streamed), then lets
 // the lawyer refine it by chat or edit it by hand. The draft is a
@@ -17,6 +17,7 @@ import type { Generation, Source } from '@/data/cases';
 
 interface Props {
   caseId: string;
+  caseTitle: string;
   toolId: string;
   toolLabel: string;
   // The latest generation for this tool on the case, if any — drives
@@ -25,9 +26,54 @@ interface Props {
   latest?: Generation;
   // Ready sources on the case, offered as selectable context.
   sources: Array<Pick<Source, 'id' | 'title' | 'kind'>>;
+  // Send configuration (feature flag + Outlook connection + recipient
+  // candidates), resolved on the server.
+  send: SendConfig;
 }
 
-export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources }: Props) {
+// The only tool whose drafts can be emailed today (matches the API
+// route's SENDABLE_TOOL_ID).
+const SENDABLE_TOOL_ID = 'client-care-letter';
+
+// Map the API's error codes to lawyer-facing messages. `detail` is the
+// server's raw `message` (only set for send_failed) — surfaced so an
+// unexpected Graph/token failure is diagnosable instead of a dead-end
+// "Failed to send".
+function sendErrorMessage(code?: string, detail?: string): string {
+  switch (code) {
+    case 'outlook_not_connected':
+      return 'Connect Outlook (in Settings) before sending.';
+    case 'insufficient_scope':
+      return 'Reconnect Outlook to grant send permission, then try again.';
+    case 'recipient_required':
+      return 'Choose a recipient before sending.';
+    case 'no_draft_to_send':
+      return 'There is no draft to send yet.';
+    default:
+      return detail ? `Failed to send the letter: ${detail}` : 'Failed to send the letter.';
+  }
+}
+
+// Short, readable timestamp for the "Sent on …" line.
+function formatSentAt(iso: string): string {
+  return new Date(iso).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export default function ToolRunner({
+  caseId,
+  caseTitle,
+  toolId,
+  toolLabel,
+  latest,
+  sources,
+  send,
+}: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const [phase, setPhase] = useState<'config' | 'draft'>('config');
@@ -44,6 +90,15 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState('');
 
+  // Send panel. `sendOpen` toggles the recipient/subject form inside the
+  // draft view. `sent` mirrors the generation's persisted send record so
+  // the UI can show "Sent to X" without a refetch.
+  const [sendOpen, setSendOpen] = useState(false);
+  const [recipient, setRecipient] = useState('');
+  const [subject, setSubject] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [sent, setSent] = useState<{ to: string; at: string; toClient: boolean } | null>(null);
+
   const [error, setError] = useState<string | null>(null);
 
   function openDialog() {
@@ -55,6 +110,8 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
     setStreaming('');
     setChatInput('');
     setIsEditing(false);
+    setSendOpen(false);
+    setSent(null);
     setError(null);
     dialogRef.current?.showModal();
   }
@@ -71,6 +128,12 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
     setStreaming('');
     setChatInput('');
     setIsEditing(false);
+    setSendOpen(false);
+    setSent(
+      latest.sentAt
+        ? { to: latest.sentTo ?? '', at: latest.sentAt, toClient: latest.sentToClient }
+        : null,
+    );
     setError(null);
     dialogRef.current?.showModal();
   }
@@ -209,6 +272,57 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
     }
   }
 
+  // Open the send panel, seeding the subject and (flag-on) a default
+  // recipient from the first candidate.
+  function openSend() {
+    setError(null);
+    setSubject(`${toolLabel} — ${caseTitle}`);
+    setRecipient(send.enabled ? (send.clientCandidates[0] ?? '') : '');
+    setSendOpen(true);
+  }
+
+  async function handleSend() {
+    if (!generationId) return;
+    // Re-send guard — the draft already went out once.
+    if (sent && !window.confirm('This letter was already sent. Send it again?')) return;
+    setError(null);
+    setIsSending(true);
+    try {
+      const res = await fetch(`/api/generations/${generationId}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: subject.trim() || undefined,
+          // Recipient is only honoured server-side when the flag is on;
+          // omit it otherwise so the server uses the mailbox floor.
+          recipient: send.enabled ? recipient.trim() || undefined : undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        sentAt?: string;
+        sentTo?: string;
+        sentToClient?: boolean;
+        error?: string;
+        message?: string;
+      };
+      if (!res.ok || !data.ok) {
+        throw new Error(sendErrorMessage(data.error, data.message));
+      }
+      setSent({
+        to: data.sentTo ?? recipient,
+        at: data.sentAt ?? new Date().toISOString(),
+        toClient: Boolean(data.sentToClient),
+      });
+      setSendOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send');
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  const canSend = toolId === SENDABLE_TOOL_ID;
   const hasViewable = Boolean(latest && latest.messages.length > 1);
   // What the draft body shows: live stream text once it arrives, else
   // the committed draft (dimmed while we wait for the first token).
@@ -313,10 +427,26 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
                   )}
                 </p>
                 {!isEditing && draft && !isStreaming && (
-                  <button type="button" onClick={startEdit} className="btn btn-ghost btn-xs gap-1">
-                    <Pencil className="h-3 w-3" />
-                    Edit
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={startEdit}
+                      className="btn btn-ghost btn-xs gap-1"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      Edit
+                    </button>
+                    {canSend && (
+                      <button
+                        type="button"
+                        onClick={openSend}
+                        className="btn btn-ghost btn-xs gap-1"
+                      >
+                        <Mail className="h-3 w-3" />
+                        {sent ? 'Resend' : 'Send'}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -348,6 +478,100 @@ export default function ToolRunner({ caseId, toolId, toolLabel, latest, sources 
                   >
                     {bodyText || <span className="loading loading-dots loading-sm" />}
                   </p>
+                </div>
+              )}
+
+              {/* Sent confirmation — mirrors the persisted send record. */}
+              {sent && !sendOpen && (
+                <div className="flex items-center gap-2 text-xs text-success">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>
+                    Sent to {sent.to}
+                    {!sent.toClient && ' (your mailbox)'} on {formatSentAt(sent.at)}
+                  </span>
+                </div>
+              )}
+
+              {/* Send panel — recipient + subject + body preview. Only
+                  rendered for the sendable tool; toggled by openSend. */}
+              {canSend && sendOpen && !isEditing && (
+                <div className="rounded-md border border-base-300 p-3 space-y-3 bg-base-200/40">
+                  <p className="text-xs uppercase tracking-wide text-base-content/40 flex items-center gap-2">
+                    <Mail className="h-3 w-3" />
+                    Send letter
+                  </p>
+
+                  {!send.outlookConnected ? (
+                    <p className="text-sm text-base-content/60">
+                      Connect Outlook in Settings to send this letter.
+                    </p>
+                  ) : (
+                    <>
+                      <div>
+                        <span className="label-text text-sm">Recipient</span>
+                        {send.enabled ? (
+                          <>
+                            <input
+                              type="email"
+                              value={recipient}
+                              onChange={(e) => setRecipient(e.target.value)}
+                              list={`recipients-${generationId}`}
+                              placeholder="client@example.com"
+                              className="input input-bordered input-sm w-full mt-1"
+                            />
+                            {send.clientCandidates.length > 0 && (
+                              <datalist id={`recipients-${generationId}`}>
+                                {send.clientCandidates.map((c) => (
+                                  <option key={c} value={c} />
+                                ))}
+                              </datalist>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-sm mt-1">
+                            {send.mailbox}{' '}
+                            <span className="text-base-content/50">
+                              — sending to your own mailbox (client sending is disabled).
+                            </span>
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <span className="label-text text-sm">Subject</span>
+                        <input
+                          type="text"
+                          value={subject}
+                          onChange={(e) => setSubject(e.target.value)}
+                          className="input input-bordered input-sm w-full mt-1"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSendOpen(false)}
+                          disabled={isSending}
+                          className="btn btn-ghost btn-sm"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSend}
+                          disabled={isSending || (send.enabled && !recipient.trim())}
+                          className="btn btn-primary btn-sm gap-1"
+                        >
+                          {isSending ? (
+                            <span className="loading loading-spinner loading-xs" />
+                          ) : (
+                            <Mail className="h-3.5 w-3.5" />
+                          )}
+                          {sent ? 'Resend' : 'Send'}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 

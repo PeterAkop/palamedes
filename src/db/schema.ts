@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   check,
   date,
   index,
@@ -248,6 +249,16 @@ export const generations = pgTable(
     status: text('status').notNull().default('running'),
     // The model that produced the draft (e.g. claude-opus-4-8).
     model: text('model').notNull(),
+
+    // Send record — populated when the draft is emailed out (Graph
+    // /me/sendMail). `sent_at` null means never sent. `sent_to` is the
+    // actual recipient used; `sent_to_client` distinguishes a real
+    // client send (feature flag on) from the safe lawyer-mailbox send
+    // (flag off, the default). A re-send overwrites these with the
+    // latest send.
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    sentTo: text('sent_to'),
+    sentToClient: boolean('sent_to_client').notNull().default(false),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

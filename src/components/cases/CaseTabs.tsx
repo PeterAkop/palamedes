@@ -20,6 +20,7 @@ import {
   CASE_TYPE_LABEL,
   type Case,
   type Client,
+  type SendConfig,
   SOURCE_KIND_LABEL,
   type Source,
   type SourceKind,
@@ -39,9 +40,10 @@ const DEFAULT_TAB: TabId = 'overview';
 interface Props {
   caseData: Case;
   client: Client | undefined;
+  send: SendConfig;
 }
 
-export default function CaseTabs({ caseData, client }: Props) {
+export default function CaseTabs({ caseData, client, send }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
@@ -61,7 +63,7 @@ export default function CaseTabs({ caseData, client }: Props) {
       <Tablist active={activeTab} onChange={setTab} sourceCount={caseData.sources.length} />
       {activeTab === 'overview' && <OverviewTab caseData={caseData} client={client} />}
       {activeTab === 'sources' && <SourcesTab caseId={caseData.id} sources={caseData.sources} />}
-      {activeTab === 'tools' && <ToolsTab caseData={caseData} />}
+      {activeTab === 'tools' && <ToolsTab caseData={caseData} send={send} />}
     </div>
   );
 }
@@ -415,7 +417,7 @@ function formatShortDate(iso: string): string {
 
 // --- Tools tab ------------------------------------------------------------
 
-function ToolsTab({ caseData }: { caseData: Case }) {
+function ToolsTab({ caseData, send }: { caseData: Case; send: SendConfig }) {
   // Group tools by category for a tidier list as the registry grows.
   const grouped = TOOLS.reduce<Record<string, typeof TOOLS>>((acc, t) => {
     const bucket = acc[t.category] ?? [];
@@ -464,15 +466,23 @@ function ToolsTab({ caseData }: { caseData: Case }) {
                         <p className="text-xs text-base-content/50 mt-1 flex items-center gap-1">
                           <CheckCircle2 className="h-3 w-3 text-success" />
                           Last run — v{latest.version} ({latest.status})
+                          {latest.sentAt && (
+                            <span className="flex items-center gap-1 text-success">
+                              <Mail className="h-3 w-3" />
+                              Sent
+                            </span>
+                          )}
                         </p>
                       )}
                     </div>
                     <ToolRunner
                       caseId={caseData.id}
+                      caseTitle={caseData.title}
                       toolId={t.id}
                       toolLabel={t.label}
                       latest={latest}
                       sources={readySources}
+                      send={send}
                     />
                   </div>
                 );

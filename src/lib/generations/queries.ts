@@ -51,5 +51,8 @@ export async function listGenerationsForCase(caseId: string): Promise<ViewGenera
     model: g.model,
     createdAt: g.createdAt.toISOString(),
     messages: messagesByGeneration.get(g.id) ?? [],
+    sentAt: g.sentAt?.toISOString(),
+    sentTo: g.sentTo ?? undefined,
+    sentToClient: g.sentToClient,
   }));
 }
