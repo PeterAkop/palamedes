@@ -5,7 +5,20 @@
 // Config is read lazily (not at module load) so a missing env var only
 // errors at call time — keeps `next build` working before setup.
 
-const SCOPES = ['offline_access', 'openid', 'profile', 'email', 'User.Read', 'Mail.Read'];
+// Mail.Send lets the app send mail as the connected mailbox (Graph
+// /me/sendMail) — used by the Client Care Letter send feature. New
+// connections consent to it on first sign-in; connections made before
+// this scope was added carry a Mail.Read-only token and must reconnect
+// once to grant send.
+const SCOPES = [
+  'offline_access',
+  'openid',
+  'profile',
+  'email',
+  'User.Read',
+  'Mail.Read',
+  'Mail.Send',
+];
 
 interface OutlookConfig {
   clientId: string;
@@ -39,6 +52,14 @@ export function getAuthorizeUrl(state: string): string {
     redirect_uri: c.redirectUri,
     response_mode: 'query',
     scope: SCOPES.join(' '),
+    // Force the consent screen every connect. Without this, Microsoft
+    // silently re-authorises an account that already consented to an
+    // earlier scope set (e.g. Mail.Read) and returns a token WITHOUT the
+    // newly-added scope (Mail.Send) — the consent prompt for the new
+    // permission never appears. prompt=consent guarantees the user is
+    // asked for the current SCOPES, so reconnecting actually upgrades the
+    // grant.
+    prompt: 'consent',
     state,
   });
   return `${authority(c.tenant)}/authorize?${params.toString()}`;
@@ -75,9 +96,17 @@ export function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
 }
 
 export function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
+  // No `scope` on refresh — deliberately. A refresh can only ever return
+  // scopes the user already consented to interactively; asking for a
+  // *new* scope here (e.g. Mail.Send on a connection consented under
+  // Mail.Read) makes Microsoft reject the whole grant with AADSTS70000
+  // ("user must first sign in and grant access"). Omitting scope returns
+  // a token carrying the previously-granted scopes — so old Mail.Read
+  // connections keep refreshing, and connections that consented to
+  // Mail.Send keep it. New scopes are granted only via getAuthorizeUrl
+  // (reconnect), which still uses the full SCOPES list.
   return tokenRequest({
     grant_type: 'refresh_token',
     refresh_token: refreshToken,
-    scope: SCOPES.join(' '),
   });
 }

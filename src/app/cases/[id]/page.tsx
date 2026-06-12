@@ -6,6 +6,7 @@ import OutlookCaseActions from '@/components/cases/OutlookCaseActions';
 import { CASE_STATUS_LABEL, CASE_TYPE_LABEL } from '@/data/cases';
 import { getCurrentUserId } from '@/lib/auth';
 import { getCaseById, getClientById } from '@/lib/cases/queries';
+import { sendToClientEnabled } from '@/lib/flags';
 import { getConnection } from '@/lib/outlook/tokens';
 
 // Force-dynamic at the page level too. The parent layout sets the
@@ -44,6 +45,28 @@ export default async function CaseDetailPage({ params }: Props) {
     accountEmail: undefined,
   }));
 
+  // Send config for the Tools tab. `toClient` (the global feature flag)
+  // decides whether the lawyer can pick a client recipient or sending is
+  // locked to their own mailbox. `clientCandidates` are the addresses we
+  // surface when the flag is on: the structured client email plus the
+  // distinct `from` addresses of grabbed email sources on the case.
+  const clientCandidates = Array.from(
+    new Set(
+      [
+        client?.email,
+        ...caseData.sources.filter((s) => s.kind === 'email').map((s) => s.metadata?.from),
+      ]
+        .map((e) => e?.trim())
+        .filter((e): e is string => Boolean(e)),
+    ),
+  );
+  const sendConfig = {
+    enabled: sendToClientEnabled(),
+    outlookConnected: outlook.connected,
+    mailbox: outlook.accountEmail,
+    clientCandidates,
+  };
+
   return (
     <div className="space-y-6">
       {/* Case header — stays above the tabs so the case identity is
@@ -80,7 +103,7 @@ export default async function CaseDetailPage({ params }: Props) {
         </div>
       </div>
 
-      <CaseTabs caseData={caseData} client={client} />
+      <CaseTabs caseData={caseData} client={client} send={sendConfig} />
     </div>
   );
 }

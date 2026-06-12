@@ -17,6 +17,45 @@ async function graphGet<T>(accessToken: string, path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+// POST to Graph. Many Graph actions (sendMail) return 202 with an empty
+// body, so this resolves on any 2xx without parsing. On a 403 we throw a
+// recognisable `insufficient_scope` error so the caller can prompt a
+// reconnect (mailboxes connected before Mail.Send was added lack it).
+async function graphPost(accessToken: string, path: string, body: unknown): Promise<void> {
+  const res = await fetch(`${GRAPH}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    if (res.status === 403) {
+      throw new Error('insufficient_scope');
+    }
+    throw new Error(`Graph POST ${path} failed (${res.status}): ${text.slice(0, 300)}`);
+  }
+}
+
+// Send a plain-text email as the connected mailbox. `saveToSentItems`
+// keeps a copy in the lawyer's Sent folder. Throws `insufficient_scope`
+// if the token predates the Mail.Send scope (reconnect needed).
+export async function sendMail(
+  accessToken: string,
+  args: { to: string; subject: string; bodyText: string },
+): Promise<void> {
+  await graphPost(accessToken, '/me/sendMail', {
+    message: {
+      subject: args.subject,
+      body: { contentType: 'Text', content: args.bodyText },
+      toRecipients: [{ emailAddress: { address: args.to } }],
+    },
+    saveToSentItems: true,
+  });
+}
+
 // Shape of the Graph message fields we $select.
 interface GraphMessage {
   id: string;
