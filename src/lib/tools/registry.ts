@@ -7,6 +7,8 @@
 // migration; `generations.tool_id` references these ids. Two tools to
 // start, matching STATUS.md's Phase A.1 list.
 
+import type { FirmDetails } from '@/lib/firm/queries';
+
 export interface ToolContext {
   caseTitle: string;
   caseType: string;
@@ -15,6 +17,9 @@ export interface ToolContext {
   caseSummary?: string;
   // The source summaries the lawyer selected as context for this run.
   sourceSummaries: Array<{ title: string; kind: string; aiSummary: string }>;
+  // The lawyer's firm letterhead / signatory details — folded into the
+  // letter so the draft uses real firm data, not placeholders.
+  firm?: FirmDetails;
   // Optional free-text steer the lawyer typed when kicking off the run.
   instructions?: string;
 }
@@ -31,13 +36,44 @@ export interface ToolDef {
 // Shared closing guidance appended to every tool's system prompt — the
 // non-negotiables for a solicitor-facing draft.
 const SHARED_GUARDRAILS = `
-You are drafting for a qualified UK immigration solicitor who will review, edit, and sign the document — you are not giving legal advice to a client and nothing you produce is sent without the solicitor's approval. Use only facts present in the provided case context; never invent names, dates, figures, or references. Where a detail is needed but missing, insert a clearly-marked placeholder in square brackets (e.g. [DATE OF MARRIAGE]) rather than guessing. Write in British English, in a professional letter register. Output only the letter text — no commentary, no explanation of your choices.`;
+You are drafting for a qualified UK immigration solicitor who will review, edit, and sign the document — you are not giving legal advice to a client and nothing you produce is sent without the solicitor's approval. Use only facts present in the provided case context; never invent names, dates, figures, or references. For the firm's own letterhead and signatory, use the details in the "Firm details" block exactly as given; only fall back to a clearly-marked square-bracket placeholder (e.g. [FIRM ADDRESS], [DATE OF MARRIAGE]) for a detail that is genuinely missing — never guess. Write in British English, in a professional letter register. Output only the letter text — no commentary, no explanation of your choices.`;
+
+// Render the firm letterhead/signatory block. Only the fields the lawyer
+// has filled in appear; missing ones are simply absent (the model is
+// told to placeholder those).
+function renderFirm(firm: FirmDetails): string {
+  const lines: Array<[string, string | undefined]> = [
+    ['Firm name', firm.firmName],
+    ['Address', firm.address],
+    ['Phone', firm.phone],
+    ['Email', firm.email],
+    ['Website', firm.website],
+    ['SRA number', firm.sraNumber],
+    ['VAT number', firm.vatNumber],
+    ['Our-reference prefix', firm.referencePrefix],
+    ['Signatory', firm.signatoryName],
+    ['Signatory title', firm.signatoryTitle],
+    ['Signatory email', firm.signatoryEmail],
+    ['Assisting fee earner', firm.assistingFeeEarner],
+    ['Complaints/Ombudsman footer', firm.complaintsFooter],
+    ['Bank details', firm.bankDetails],
+  ];
+  const filled = lines.filter(([, v]) => v && v.trim().length > 0);
+  if (filled.length === 0) return '';
+  return `\nFirm details (use as letterhead / signatory):\n${filled
+    .map(([k, v]) => `- ${k}: ${v}`)
+    .join('\n')}`;
+}
 
 function renderContext(ctx: ToolContext): string {
   const parts: string[] = [
     `Case: ${ctx.caseTitle} (type: ${ctx.caseType})`,
     `Client: ${ctx.clientName}`,
   ];
+  if (ctx.firm) {
+    const firmBlock = renderFirm(ctx.firm);
+    if (firmBlock) parts.push(firmBlock);
+  }
   parts.push(
     ctx.caseSummary
       ? `\nCase summary:\n${ctx.caseSummary}`
@@ -63,7 +99,7 @@ export const TOOLS: ToolDef[] = [
     category: 'Onboarding',
     systemPrompt: `You draft SRA-compliant client care (engagement) letters for a UK immigration law firm. Cover the matters the SRA Code requires: scope of work, who will handle the matter, fees and how they are calculated, likely disbursements, the complaints procedure and the right to complain to the Legal Ombudsman, and data-protection handling. Structure it as a formal letter with clear headed sections.${SHARED_GUARDRAILS}`,
     buildUserPrompt: (ctx) =>
-      `Draft a client care letter for the following matter. Use placeholders for firm-specific details (fee rates, named fee-earner, firm address) that aren't in the context.\n\n${renderContext(ctx)}`,
+      `Draft a client care letter for the following matter. Use the Firm details block for the firm name, signatory, address and reference; placeholder only the matter-specific details (fee figures, dates) that aren't in the context.\n\n${renderContext(ctx)}`,
   },
   {
     id: 'cover-letter-spouse-visa',
