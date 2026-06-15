@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db, generationMessages, generations } from '@/db/db';
 import { anthropic, MODELS } from '@/lib/anthropic';
 
@@ -54,12 +54,27 @@ export function streamGeneration({ generationId, system, messages }: StreamArgs)
 
         if (!full.trim()) throw new Error('Opus returned an empty draft');
 
+        // Token usage for this turn — accumulated onto the generation
+        // row (this helper runs once per draft and once per refine).
+        // Input counts cached tokens too where present.
+        const usage = (await ms.finalMessage()).usage;
+        const inputTokens =
+          (usage.input_tokens ?? 0) +
+          (usage.cache_creation_input_tokens ?? 0) +
+          (usage.cache_read_input_tokens ?? 0);
+        const outputTokens = usage.output_tokens ?? 0;
+
         await db
           .insert(generationMessages)
           .values({ generationId, role: 'assistant', content: full });
         await db
           .update(generations)
-          .set({ status: 'complete', updatedAt: new Date() })
+          .set({
+            status: 'complete',
+            inputTokens: sql`${generations.inputTokens} + ${inputTokens}`,
+            outputTokens: sql`${generations.outputTokens} + ${outputTokens}`,
+            updatedAt: new Date(),
+          })
           .where(eq(generations.id, generationId));
 
         send({ type: 'done' });

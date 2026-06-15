@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { cases, clients, db, sources } from '@/db/db';
+import { getFirmDetails } from '@/lib/firm/queries';
 import type { ToolContext } from '@/lib/tools/registry';
 
 // Build the ToolContext for a generation: the case (title/type/AI
@@ -48,12 +49,15 @@ export async function buildToolContext(
     .filter((s): s is { title: string; kind: string; aiSummary: string } => Boolean(s.aiSummary))
     .map((s) => ({ title: s.title, kind: s.kind, aiSummary: s.aiSummary }));
 
+  const firm = await getFirmDetails(ownerId);
+
   return {
     caseTitle: c.title,
     caseType: c.caseType,
     clientName: `${c.clientFirst} ${c.clientLast}`,
     caseSummary: c.aiSummary ?? undefined,
     sourceSummaries,
+    firm,
     instructions,
   };
 }

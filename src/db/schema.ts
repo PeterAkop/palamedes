@@ -250,6 +250,12 @@ export const generations = pgTable(
     // The model that produced the draft (e.g. claude-opus-4-8).
     model: text('model').notNull(),
 
+    // Token usage for this run, accumulated across the initial draft and
+    // every refine turn (both go through streamGeneration). Lets us
+    // report spend per tool/date. Input includes any cache tokens.
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+
     // Send record — populated when the draft is emailed out (Graph
     // /me/sendMail). `sent_at` null means never sent. `sent_to` is the
     // actual recipient used; `sent_to_client` distinguishes a real
@@ -330,6 +336,49 @@ export const integrationTokens = pgTable(
 
 export type IntegrationToken = typeof integrationTokens.$inferSelect;
 export type NewIntegrationToken = typeof integrationTokens.$inferInsert;
+
+// --- Firm details ---------------------------------------------------------
+
+// Per-user firm letterhead / identity. One row per owner (the lawyer's
+// firm). These are the fixed details that prefill every client-facing
+// generated letter — name, address, regulatory info, signatory — edited
+// once in Settings rather than retyped per draft. All columns nullable
+// so a user can fill them in incrementally; the row is upserted.
+export const firmSettings = pgTable(
+  'firm_settings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerId: text('owner_id').notNull(),
+    // Firm identity / letterhead.
+    firmName: text('firm_name'),
+    address: text('address'),
+    phone: text('phone'),
+    email: text('email'),
+    website: text('website'),
+    sraNumber: text('sra_number'),
+    vatNumber: text('vat_number'),
+    // Blob path of the uploaded firm logo (rendered on formatted output).
+    logoBlobPath: text('logo_blob_path'),
+    // Signatory / fee earner.
+    signatoryName: text('signatory_name'),
+    signatoryTitle: text('signatory_title'),
+    signatoryEmail: text('signatory_email'),
+    assistingFeeEarner: text('assisting_fee_earner'),
+    // Letter scaffolding + boilerplate.
+    referencePrefix: text('reference_prefix'),
+    complaintsFooter: text('complaints_footer'),
+    bankDetails: text('bank_details'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One firm row per owner — the upsert target.
+    uniqueIndex('firm_settings_owner_idx').on(t.ownerId),
+  ],
+);
+
+export type FirmSettings = typeof firmSettings.$inferSelect;
+export type NewFirmSettings = typeof firmSettings.$inferInsert;
 
 // --- Mailbox triage -------------------------------------------------------
 
@@ -460,6 +509,7 @@ export const tables = {
   generations,
   generationMessages,
   integrationTokens,
+  firmSettings,
   users,
   accounts,
   sessions,

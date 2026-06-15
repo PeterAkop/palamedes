@@ -55,6 +55,9 @@ export interface Generation {
   version: number;
   status: GenerationStatus;
   model: string;
+  // Token usage accumulated across the draft + refines for this run.
+  inputTokens: number;
+  outputTokens: number;
   createdAt: string;
   messages: GenerationMessage[];
   // Send record — present once the draft has been emailed out. `sentAt`
