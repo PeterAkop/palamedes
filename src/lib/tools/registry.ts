@@ -97,9 +97,36 @@ export const TOOLS: ToolDef[] = [
     label: 'Client Care Letter',
     description: 'SRA-compliant client care / engagement letter for new instructions.',
     category: 'Onboarding',
-    systemPrompt: `You draft SRA-compliant client care (engagement) letters for a UK immigration law firm. Cover the matters the SRA Code requires: scope of work, who will handle the matter, fees and how they are calculated, likely disbursements, the complaints procedure and the right to complain to the Legal Ombudsman, and data-protection handling. Structure it as a formal letter with clear headed sections.${SHARED_GUARDRAILS}`,
+    systemPrompt: `You draft SRA-compliant client care (engagement) letters for a UK immigration law firm, in the style of a high-street firm's standard letter. Open with a reference block (OUR REFERENCE using the firm's reference prefix, YOUR REFERENCE, DATE), then "Dear [client]" and a "Re:" line naming the matter. Use clear headed sections covering: an opening confirming instructions and referring to the accompanying terms of business; "Responsibility for your matter" (the named signatory has conduct, assisted by any assisting fee earner); "Your Instructions" (the background from the case context); "Advice and Next Steps" (merits and the process ahead); "Costs and expenses" (the agreed fee and what it includes, disbursements); "Money on account" (any sum received on account); "Our service" and the complaints procedure including the right to escalate to the Legal Ombudsman (legalombudsman.org.uk); and "How you can help us". Close by asking the client to confirm by email that they have received and agree to the letter and terms of business, then sign off "Yours sincerely" with the signatory's name, the firm name and the signatory's email.${SHARED_GUARDRAILS}`,
     buildUserPrompt: (ctx) =>
-      `Draft a client care letter for the following matter. Use the Firm details block for the firm name, signatory, address and reference; placeholder only the matter-specific details (fee figures, dates) that aren't in the context.\n\n${renderContext(ctx)}`,
+      `Draft a client care letter for the following matter. Use the Firm details block for the reference prefix, signatory, assisting fee earner, firm name and email; use bracketed placeholders only for matter-specific details (fee figures, dates, sums on account) that aren't in the context.\n\n${renderContext(ctx)}`,
+  },
+  {
+    id: 'client-advice-email',
+    label: 'Client Advice Email',
+    description: 'Plain-English advice email to a client: process, fees, and documents needed.',
+    category: 'Advice',
+    systemPrompt: `You draft plain-English advice emails from a UK immigration solicitor to their client, explaining what to do next on their matter. Keep the tone professional but approachable and practical, as in a real solicitor-to-client email. Where relevant, cover: the application/form to be made (with the relevant gov.uk link if known, otherwise a bracketed placeholder); the Home Office fees and any health surcharge; a numbered "The process is" list of steps; a clear "The documents you need are" list tailored to the matter; any financial or evidential requirement explained in practical terms; and the firm's service options/fees for assisting. Close with an offer to answer questions and "Yours faithfully" with the signatory's name. Use real figures/links only if present in the context; never invent fee amounts or form numbers.${SHARED_GUARDRAILS}`,
+    buildUserPrompt: (ctx) =>
+      `Draft a client advice email for the following matter — explain the process, fees and the documents the client needs to provide. Tailor the document list to the matter type. Placeholder any fee figure, form number or gov.uk link not given in the context.\n\n${renderContext(ctx)}`,
+  },
+  {
+    id: 'letter-of-representation',
+    label: 'Letter of Representation',
+    description: 'Formal representations to the Home Office / UKVI applying the Immigration Rules.',
+    category: 'Representations',
+    systemPrompt: `You draft formal letters of representation addressed to the Home Office / UKVI in support of an immigration application. Open with a reference block (the relevant application form, OUR REFERENCE using the firm's prefix, YOUR REFERENCE, DATE), then "Dear Sir/Madam", a heading naming the application and route, and a NAME / DOB / NATIONALITY block. State who you are instructed by, give the "Background", then under "The Law" work through each relevant requirement of the applicable Appendix in turn (e.g. validity, suitability, eligibility/qualifying period, continuous residence, English language, Knowledge of Life in the UK), citing the specific rule paragraph references you rely on and applying the client's facts to each. Where a precise rule reference or figure is required but not certain from the context, insert a clearly-marked bracketed placeholder (e.g. [APPENDIX X PARA Y]) rather than stating a rule you are not sure of — accuracy of the law matters more than completeness. Conclude that the client qualifies and ask the caseworker to grant the application, then sign off "Yours faithfully" with the firm name.${SHARED_GUARDRAILS}`,
+    buildUserPrompt: (ctx) =>
+      `Draft a letter of representation for the following matter, working through the relevant Immigration Rules requirements and applying the client's facts. Cite the rule paragraphs you rely on; where you are not certain of a precise reference or figure, use a bracketed placeholder rather than guessing.\n\n${renderContext(ctx)}`,
+  },
+  {
+    id: 'witness-statement',
+    label: 'Witness Statement',
+    description: 'First-person witness statement for a tribunal appeal, with statement of truth.',
+    category: 'Tribunal',
+    systemPrompt: `You draft witness statements for use in First-tier Tribunal immigration appeals. Begin with the tribunal heading ("In the First-tier Tribunal" with the appeal reference if known), the parties ("Between: [Appellant] / [name] and the Secretary of State for the Home Department, Respondent"), and "Witness statement of [name]". Write the body in the first person as the witness ("I, [name], of [address], make this statement in support of..."), in clear numbered paragraphs setting out the relevant facts from the case context. End with a "STATEMENT OF TRUTH" in the standard form ("I believe that the facts stated in this witness statement are true. I understand that proceedings for contempt of court may be brought against anyone who makes... a false statement..."), followed by Signed / Name / Dated lines. If the case context indicates the statement was interpreted, add the standard interpreter declaration naming the interpreter (the signatory) and the language. Use bracketed placeholders for any fact, date, address or reference not in the context.${SHARED_GUARDRAILS}`,
+    buildUserPrompt: (ctx) =>
+      `Draft a first-person witness statement for the following appeal, in numbered paragraphs, ending with the statement of truth (and an interpreter declaration if the context indicates one is needed). Placeholder any fact, date, address or appeal reference not given.\n\n${renderContext(ctx)}`,
   },
   {
     id: 'cover-letter-spouse-visa',
