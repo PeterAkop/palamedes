@@ -49,6 +49,8 @@ export async function listGenerationsForCase(caseId: string): Promise<ViewGenera
     // Safe cast — CHECK constraint guarantees the union.
     status: g.status as GenerationStatus,
     model: g.model,
+    inputTokens: g.inputTokens,
+    outputTokens: g.outputTokens,
     createdAt: g.createdAt.toISOString(),
     messages: messagesByGeneration.get(g.id) ?? [],
     sentAt: g.sentAt?.toISOString(),

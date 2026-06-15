@@ -250,6 +250,12 @@ export const generations = pgTable(
     // The model that produced the draft (e.g. claude-opus-4-8).
     model: text('model').notNull(),
 
+    // Token usage for this run, accumulated across the initial draft and
+    // every refine turn (both go through streamGeneration). Lets us
+    // report spend per tool/date. Input includes any cache tokens.
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+
     // Send record — populated when the draft is emailed out (Graph
     // /me/sendMail). `sent_at` null means never sent. `sent_to` is the
     // actual recipient used; `sent_to_client` distinguishes a real
