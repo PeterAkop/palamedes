@@ -28,6 +28,7 @@ import {
 } from '@/data/cases';
 import { TOOLS } from '@/lib/tools/registry';
 import AddNoteButton from './AddNoteButton';
+import CaseReferences from './CaseReferences';
 import PasteButton from './PasteButton';
 import RegenerateSummaryButton from './RegenerateSummaryButton';
 import SourceActions from './SourceActions';
@@ -188,6 +189,13 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
           </dl>
         </div>
       </div>
+
+      {/* Matter references — inline-editable; feed the drafting tools. */}
+      <CaseReferences
+        caseId={caseData.id}
+        ourReference={caseData.ourReference}
+        yourReference={caseData.yourReference}
+      />
 
       {/* AI case summary card — rolled up across sources by Haiku. */}
       <div className="card bg-base-100 border border-base-300">

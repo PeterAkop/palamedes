@@ -95,6 +95,11 @@ export const cases = pgTable(
     caseType: text('case_type').notNull(),
     status: text('status').notNull().default('open'),
     homeOfficeReference: text('home_office_reference'),
+    // The firm's matter reference ("our reference") and the recipient's
+    // ("your reference") for letterheads. Lawyer-set; when absent the
+    // drafting tools placeholder them rather than inventing a number.
+    ourReference: text('our_reference'),
+    yourReference: text('your_reference'),
     deadline: date('deadline'),
     // Manually-authored case description from the lawyer.
     summary: text('summary'),

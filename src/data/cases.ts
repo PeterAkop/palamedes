@@ -76,6 +76,9 @@ export interface Case {
   caseType: CaseType;
   status: CaseStatus;
   homeOfficeReference?: string;
+  // Firm matter reference + recipient reference for letterheads.
+  ourReference?: string;
+  yourReference?: string;
   deadline?: string;
   createdAt: string;
   updatedAt: string;

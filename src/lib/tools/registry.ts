@@ -17,6 +17,10 @@ export interface ToolContext {
   caseSummary?: string;
   // The source summaries the lawyer selected as context for this run.
   sourceSummaries: Array<{ title: string; kind: string; aiSummary: string }>;
+  // Matter references for the letterhead. Lawyer-set; absent ones must
+  // be placeholdered, never invented.
+  ourReference?: string;
+  yourReference?: string;
   // The lawyer's firm letterhead / signatory details — folded into the
   // letter so the draft uses real firm data, not placeholders.
   firm?: FirmDetails;
@@ -36,7 +40,7 @@ export interface ToolDef {
 // Shared closing guidance appended to every tool's system prompt — the
 // non-negotiables for a solicitor-facing draft.
 const SHARED_GUARDRAILS = `
-You are drafting for a qualified UK immigration solicitor who will review, edit, and sign the document — you are not giving legal advice to a client and nothing you produce is sent without the solicitor's approval. Use only facts present in the provided case context; never invent names, dates, figures, or references. For the firm's own letterhead and signatory, use the details in the "Firm details" block exactly as given; only fall back to a clearly-marked square-bracket placeholder (e.g. [FIRM ADDRESS], [DATE OF MARRIAGE]) for a detail that is genuinely missing — never guess. Write in British English, in a professional letter register. Output only the letter text — no commentary, no explanation of your choices.`;
+You are drafting for a qualified UK immigration solicitor who will review, edit, and sign the document — you are not giving legal advice to a client and nothing you produce is sent without the solicitor's approval. Use only facts present in the provided case context; never invent names, dates, figures, or references. For the firm's own letterhead and signatory, use the details in the "Firm details" block exactly as given; only fall back to a clearly-marked square-bracket placeholder (e.g. [FIRM ADDRESS], [DATE OF MARRIAGE]) for a detail that is genuinely missing — never guess. For the matter references, use the "Our reference" and "Your reference" values from the "Matter references" block exactly if given; if a reference is not provided, write a clearly-marked placeholder ([OUR REFERENCE] / [YOUR REFERENCE]) — never fabricate a reference number. Write in British English, in a professional letter register. Output only the letter text — no commentary, no explanation of your choices.`;
 
 // Render the firm letterhead/signatory block. Only the fields the lawyer
 // has filled in appear; missing ones are simply absent (the model is
@@ -50,7 +54,9 @@ function renderFirm(firm: FirmDetails): string {
     ['Website', firm.website],
     ['SRA number', firm.sraNumber],
     ['VAT number', firm.vatNumber],
-    ['Our-reference prefix', firm.referencePrefix],
+    // Note: the firm reference *prefix* is intentionally NOT passed to the
+    // model — the per-matter "Our reference" governs (see renderContext),
+    // so the model can't pad the prefix into a fabricated number.
     ['Signatory', firm.signatoryName],
     ['Signatory title', firm.signatoryTitle],
     ['Signatory email', firm.signatoryEmail],
@@ -74,6 +80,16 @@ function renderContext(ctx: ToolContext): string {
     const firmBlock = renderFirm(ctx.firm);
     if (firmBlock) parts.push(firmBlock);
   }
+  // Matter references — only the ones the lawyer set; absent ones the
+  // model must placeholder (per the guardrail), not invent.
+  const refLines: string[] = [];
+  if (ctx.ourReference?.trim()) refLines.push(`- Our reference: ${ctx.ourReference}`);
+  if (ctx.yourReference?.trim()) refLines.push(`- Your reference: ${ctx.yourReference}`);
+  parts.push(
+    refLines.length > 0
+      ? `\nMatter references:\n${refLines.join('\n')}`
+      : '\nMatter references: (none set — use [OUR REFERENCE] / [YOUR REFERENCE] placeholders, do not invent)',
+  );
   parts.push(
     ctx.caseSummary
       ? `\nCase summary:\n${ctx.caseSummary}`
