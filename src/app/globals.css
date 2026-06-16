@@ -1,3 +1,29 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* daisyUI v5 — config moves into CSS. `corporate` reads as professional
+   for a legal app; it's the default applied via <html data-theme>. */
+@plugin "daisyui" {
+  themes: corporate --default, dark;
+}
+
+/* Compatibility shims for daisyUI v4 form helpers removed in v5
+   (form-control / label / label-text). Re-added here so the existing
+   form markup keeps rendering as before without editing every site.
+   Kept in the components layer so Tailwind utilities (text-xs, py-1, …)
+   still override them. */
+@layer components {
+  .form-control {
+    display: flex;
+    flex-direction: column;
+  }
+  .label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.25rem;
+  }
+  .label-text {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+}
