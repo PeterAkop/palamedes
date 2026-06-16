@@ -84,7 +84,7 @@ function Tablist({ active, onChange, sourceCount }: TablistProps) {
     { id: 'tools', label: 'Tools' },
   ];
   return (
-    <div role="tablist" className="tabs tabs-bordered">
+    <div role="tablist" className="tabs tabs-lift">
       {tabs.map((t) => {
         const isActive = t.id === active;
         return (
