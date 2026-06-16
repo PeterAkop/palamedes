@@ -115,6 +115,8 @@ function toViewCase(
     caseType: row.caseType as CaseType,
     status: row.status as CaseStatus,
     homeOfficeReference: row.homeOfficeReference ?? undefined,
+    ourReference: row.ourReference ?? undefined,
+    yourReference: row.yourReference ?? undefined,
     deadline: row.deadline ?? undefined,
     summary: row.summary ?? undefined,
     aiSummary: row.aiSummary ?? undefined,

@@ -20,6 +20,8 @@ export async function buildToolContext(
       title: cases.title,
       caseType: cases.caseType,
       aiSummary: cases.aiSummary,
+      ourReference: cases.ourReference,
+      yourReference: cases.yourReference,
       clientFirst: clients.firstName,
       clientLast: clients.lastName,
     })
@@ -56,6 +58,8 @@ export async function buildToolContext(
     caseType: c.caseType,
     clientName: `${c.clientFirst} ${c.clientLast}`,
     caseSummary: c.aiSummary ?? undefined,
+    ourReference: c.ourReference ?? undefined,
+    yourReference: c.yourReference ?? undefined,
     sourceSummaries,
     firm,
     instructions,

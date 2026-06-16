@@ -104,7 +104,7 @@ export default function PasteButton({ caseId }: Props) {
 
           <form onSubmit={handleSubmit} className="mt-4 space-y-3">
             {/* Kind picker */}
-            <div role="tablist" className="tabs tabs-boxed w-fit">
+            <div role="tablist" className="tabs tabs-box w-fit">
               <button
                 type="button"
                 role="tab"

@@ -472,10 +472,8 @@ export default function ToolRunner({
                   </div>
                 </>
               ) : (
-                <div className="rounded-md border border-base-300 p-3 max-h-[55vh] overflow-y-auto">
-                  <p
-                    className={`text-sm whitespace-pre-wrap leading-relaxed ${waiting ? 'opacity-40' : ''}`}
-                  >
+                <div className="rounded-md border border-base-300 p-4 max-h-[55vh] overflow-y-auto prose prose-sm max-w-none">
+                  <p className={`whitespace-pre-wrap ${waiting ? 'opacity-40' : ''}`}>
                     {bodyText || <span className="loading loading-dots loading-sm" />}
                   </p>
                 </div>

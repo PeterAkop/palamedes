@@ -15,6 +15,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Fragment, useMemo, useState } from 'react';
 import {
   CASE_STATUS_LABEL,
   CASE_TYPE_LABEL,
@@ -27,6 +28,7 @@ import {
 } from '@/data/cases';
 import { TOOLS } from '@/lib/tools/registry';
 import AddNoteButton from './AddNoteButton';
+import CaseReferences from './CaseReferences';
 import PasteButton from './PasteButton';
 import RegenerateSummaryButton from './RegenerateSummaryButton';
 import SourceActions from './SourceActions';
@@ -58,46 +60,43 @@ export default function CaseTabs({ caseData, client, send }: Props) {
     router.replace(qs ? `?${qs}` : '?', { scroll: false });
   }
 
-  return (
-    <div className="space-y-4">
-      <Tablist active={activeTab} onChange={setTab} sourceCount={caseData.sources.length} />
-      {activeTab === 'overview' && <OverviewTab caseData={caseData} client={client} />}
-      {activeTab === 'sources' && <SourcesTab caseId={caseData.id} sources={caseData.sources} />}
-      {activeTab === 'tools' && <ToolsTab caseData={caseData} send={send} />}
-    </div>
-  );
-}
-
-// --- Tablist --------------------------------------------------------------
-
-interface TablistProps {
-  active: TabId;
-  onChange: (tab: TabId) => void;
-  sourceCount: number;
-}
-
-function Tablist({ active, onChange, sourceCount }: TablistProps) {
   const tabs: Array<{ id: TabId; label: string; badge?: string }> = [
     { id: 'overview', label: 'Overview' },
-    { id: 'sources', label: 'Sources', badge: String(sourceCount) },
+    { id: 'sources', label: 'Sources', badge: String(caseData.sources.length) },
     { id: 'tools', label: 'Tools' },
   ];
+
+  // daisyUI tabs-lift: each tab is followed by its tab-content panel, so
+  // the active tab merges into the content as one piece. Only the active
+  // tab's panel is rendered (its adjacency to the active tab is what
+  // makes daisyUI show it; `order:1; width:100%` lays it out below the
+  // tab row).
   return (
-    <div role="tablist" className="tabs tabs-bordered">
+    <div role="tablist" className="tabs tabs-lift">
       {tabs.map((t) => {
-        const isActive = t.id === active;
+        const isActive = t.id === activeTab;
         return (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            onClick={() => onChange(t.id)}
-            className={`tab gap-2 ${isActive ? 'tab-active font-semibold' : ''}`}
-          >
-            {t.label}
-            {t.badge && <span className="badge badge-ghost badge-sm">{t.badge}</span>}
-          </button>
+          <Fragment key={t.id}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setTab(t.id)}
+              className={`tab gap-2 ${isActive ? 'tab-active font-semibold' : ''}`}
+            >
+              {t.label}
+              {t.badge && <span className="badge badge-ghost badge-sm">{t.badge}</span>}
+            </button>
+            {isActive && (
+              <div role="tabpanel" className="tab-content bg-base-100 border-base-300 p-4 sm:p-6">
+                {t.id === 'overview' && <OverviewTab caseData={caseData} client={client} />}
+                {t.id === 'sources' && (
+                  <SourcesTab caseId={caseData.id} sources={caseData.sources} />
+                )}
+                {t.id === 'tools' && <ToolsTab caseData={caseData} send={send} />}
+              </div>
+            )}
+          </Fragment>
         );
       })}
     </div>
@@ -191,6 +190,13 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
         </div>
       </div>
 
+      {/* Matter references — inline-editable; feed the drafting tools. */}
+      <CaseReferences
+        caseId={caseData.id}
+        ourReference={caseData.ourReference}
+        yourReference={caseData.yourReference}
+      />
+
       {/* AI case summary card — rolled up across sources by Haiku. */}
       <div className="card bg-base-100 border border-base-300">
         <div className="card-body">
@@ -237,35 +243,170 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
 
 // --- Sources tab ----------------------------------------------------------
 
-function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) {
-  return (
-    <div className="card bg-base-100 border border-base-300">
-      <div className="card-body">
-        <div className="flex items-center justify-between">
-          <h2 className="card-title text-base">
-            Sources
-            <span className="badge badge-ghost badge-sm">{sources.length}</span>
-          </h2>
-          <div className="flex items-center gap-2">
-            <AddNoteButton caseId={caseId} />
-            <PasteButton caseId={caseId} />
-            <UploadButton caseId={caseId} />
-          </div>
-        </div>
+const SOURCES_PAGE_SIZE = 10;
 
-        {sources.length === 0 ? (
-          <div className="text-center py-10 text-base-content/50">
-            <Files className="h-8 w-8 mx-auto mb-2 text-base-content/30" />
-            <p>No sources yet — upload files, add notes, or paste WhatsApp / email content.</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {sources.map((src) => (
-              <SourceRow key={src.id} source={src} />
-            ))}
-          </div>
-        )}
+function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) {
+  const [kind, setKind] = useState<SourceKind | 'all'>('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
+
+  // Kinds actually present on this case — drives the type dropdown so
+  // we don't offer empty filters.
+  const kindsPresent = useMemo(() => {
+    const set = new Set<SourceKind>();
+    for (const s of sources) set.add(s.kind);
+    return Array.from(set);
+  }, [sources]);
+
+  // Apply the type + date-range filters. Date filters compare on the
+  // source's received date (YYYY-MM-DD); undated sources are excluded
+  // only when a date filter is active.
+  const filtered = useMemo(() => {
+    return sources.filter((s) => {
+      if (kind !== 'all' && s.kind !== kind) return false;
+      if (from || to) {
+        if (!s.sourceReceivedAt) return false;
+        const d = s.sourceReceivedAt.slice(0, 10);
+        if (from && d < from) return false;
+        if (to && d > to) return false;
+      }
+      return true;
+    });
+  }, [sources, kind, from, to]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / SOURCES_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageItems = filtered.slice(
+    (currentPage - 1) * SOURCES_PAGE_SIZE,
+    currentPage * SOURCES_PAGE_SIZE,
+  );
+
+  // Changing a filter resets to the first page.
+  const onKind = (v: SourceKind | 'all') => {
+    setKind(v);
+    setPage(1);
+  };
+  const onFrom = (v: string) => {
+    setFrom(v);
+    setPage(1);
+  };
+  const onTo = (v: string) => {
+    setTo(v);
+    setPage(1);
+  };
+  const clearFilters = () => {
+    setKind('all');
+    setFrom('');
+    setTo('');
+    setPage(1);
+  };
+  const filtersActive = kind !== 'all' || from !== '' || to !== '';
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="card-title text-base">
+          Sources
+          <span className="badge badge-ghost badge-sm">{sources.length}</span>
+        </h2>
+        <div className="flex items-center gap-2">
+          <AddNoteButton caseId={caseId} />
+          <PasteButton caseId={caseId} />
+          <UploadButton caseId={caseId} />
+        </div>
       </div>
+
+      {sources.length === 0 ? (
+        <div className="text-center py-10 text-base-content/50">
+          <Files className="h-8 w-8 mx-auto mb-2 text-base-content/30" />
+          <p>No sources yet — upload files, add notes, or paste WhatsApp / email content.</p>
+        </div>
+      ) : (
+        <>
+          {/* Filter bar */}
+          <div className="flex flex-wrap items-end gap-3 mt-1 mb-2">
+            <label className="form-control">
+              <span className="label-text text-xs text-base-content/60 pb-0.5">Type</span>
+              <select
+                className="select select-bordered select-sm"
+                value={kind}
+                onChange={(e) => onKind(e.target.value as SourceKind | 'all')}
+              >
+                <option value="all">All types</option>
+                {kindsPresent.map((k) => (
+                  <option key={k} value={k}>
+                    {SOURCE_KIND_LABEL[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs text-base-content/60 pb-0.5">From</span>
+              <input
+                type="date"
+                className="input input-bordered input-sm"
+                value={from}
+                max={to || undefined}
+                onChange={(e) => onFrom(e.target.value)}
+              />
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs text-base-content/60 pb-0.5">To</span>
+              <input
+                type="date"
+                className="input input-bordered input-sm"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => onTo(e.target.value)}
+              />
+            </label>
+            {filtersActive && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>
+                Clear
+              </button>
+            )}
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="text-center py-8 text-base-content/50">
+              <p>No sources match the current filters.</p>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                {pageItems.map((src) => (
+                  <SourceRow key={src.id} source={src} />
+                ))}
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-3">
+                  <span className="text-xs text-base-content/50">
+                    Showing {(currentPage - 1) * SOURCES_PAGE_SIZE + 1}–
+                    {Math.min(currentPage * SOURCES_PAGE_SIZE, filtered.length)} of{' '}
+                    {filtered.length}
+                  </span>
+                  <div className="join">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                      <input
+                        key={n}
+                        type="radio"
+                        name="sources-page"
+                        aria-label={String(n)}
+                        className="join-item btn btn-sm btn-square"
+                        checked={currentPage === n}
+                        onChange={() => setPage(n)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -274,25 +415,35 @@ function SourceRow({ source }: { source: Source }) {
   const Icon = SOURCE_KIND_ICON[source.kind];
   return (
     <details className="collapse collapse-arrow bg-base-100 border border-base-300">
-      <summary className="collapse-title !py-2.5 min-h-0 pr-10 cursor-pointer">
-        <div className="flex items-center gap-3">
-          <Icon className="h-4 w-4 shrink-0 text-base-content/50" />
-          <span className="font-medium truncate min-w-0 flex-1">{source.title}</span>
-          {source.metadata?.origin === 'outlook' && (
-            <span
-              className="badge badge-outline badge-xs gap-1 shrink-0"
-              title="Imported from Outlook"
-            >
-              <Mail className="h-3 w-3" />
-              Outlook
-            </span>
-          )}
-          <SourceStatusBadge status={source.status} />
-          <span className="text-xs text-base-content/60 shrink-0 whitespace-nowrap">
-            {SOURCE_KIND_LABEL[source.kind]}
-            {source.sourceReceivedAt && ` · ${formatShortDate(source.sourceReceivedAt)}`}
-          </span>
-          <SourceActions sourceId={source.id} status={source.status} />
+      <summary className="collapse-title !py-3 min-h-0 pr-10 cursor-pointer">
+        <div className="flex items-start gap-3">
+          <Icon className="h-4 w-4 shrink-0 text-base-content/50 mt-1" />
+          <div className="min-w-0 flex-1 flex flex-col gap-2">
+            {/* Top row: title (left) · status labels (right) */}
+            <div className="flex items-start justify-between gap-3">
+              <span className="font-medium min-w-0 line-clamp-2 break-words">{source.title}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                {source.metadata?.origin === 'outlook' && (
+                  <span
+                    className="badge badge-outline badge-xs gap-1"
+                    title="Imported from Outlook"
+                  >
+                    <Mail className="h-3 w-3" />
+                    Outlook
+                  </span>
+                )}
+                <SourceStatusBadge status={source.status} />
+              </div>
+            </div>
+            {/* Bottom row: type · date (left) · actions (right) */}
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-base-content/60 whitespace-nowrap">
+                {SOURCE_KIND_LABEL[source.kind]}
+                {source.sourceReceivedAt && ` · ${formatShortDate(source.sourceReceivedAt)}`}
+              </span>
+              <SourceActions sourceId={source.id} status={source.status} />
+            </div>
+          </div>
         </div>
       </summary>
       <div className="collapse-content !pb-3 space-y-2 text-sm">
@@ -412,7 +563,11 @@ function SourceStatusBadge({ status }: { status: Source['status'] }) {
 }
 
 function formatShortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 // --- Tools tab ------------------------------------------------------------
@@ -439,63 +594,61 @@ function ToolsTab({ caseData, send }: { caseData: Case; send: SendConfig }) {
     .map((s) => ({ id: s.id, title: s.title, kind: s.kind }));
 
   return (
-    <div className="card bg-base-100 border border-base-300">
-      <div className="card-body">
-        <div className="flex items-center justify-between">
-          <h2 className="card-title text-base gap-2">
-            <Wrench className="h-4 w-4 text-primary" />
-            Tools
-          </h2>
-        </div>
-
-        {Object.entries(grouped).map(([category, tools]) => (
-          <div key={category} className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-base-content/50 pt-2">{category}</p>
-            <div className="space-y-2">
-              {tools.map((t) => {
-                const latest = latestByTool.get(t.id);
-                return (
-                  <div
-                    key={t.id}
-                    className="border border-base-300 rounded-md p-3 flex items-start gap-3"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium">{t.label}</p>
-                      <p className="text-xs text-base-content/60 mt-0.5">{t.description}</p>
-                      {latest && (
-                        <p className="text-xs text-base-content/50 mt-1 flex items-center gap-1">
-                          <CheckCircle2 className="h-3 w-3 text-success" />
-                          Last run — v{latest.version} ({latest.status})
-                          {latest.sentAt && (
-                            <span className="flex items-center gap-1 text-success">
-                              <Mail className="h-3 w-3" />
-                              Sent
-                            </span>
-                          )}
-                        </p>
-                      )}
-                    </div>
-                    <ToolRunner
-                      caseId={caseData.id}
-                      caseTitle={caseData.title}
-                      toolId={t.id}
-                      toolLabel={t.label}
-                      latest={latest}
-                      sources={readySources}
-                      send={send}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-
-        <p className="text-xs text-base-content/50 mt-4">
-          Each tool drafts with Opus from the case summary and selected sources; refine the draft by
-          chat in the run dialog.
-        </p>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <h2 className="card-title text-base gap-2">
+          <Wrench className="h-4 w-4 text-primary" />
+          Tools
+        </h2>
       </div>
+
+      {Object.entries(grouped).map(([category, tools]) => (
+        <div key={category} className="space-y-2">
+          <p className="text-xs uppercase tracking-wide text-base-content/50 pt-2">{category}</p>
+          <div className="space-y-2">
+            {tools.map((t) => {
+              const latest = latestByTool.get(t.id);
+              return (
+                <div
+                  key={t.id}
+                  className="border border-base-300 rounded-md p-3 flex items-start gap-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">{t.label}</p>
+                    <p className="text-xs text-base-content/60 mt-0.5">{t.description}</p>
+                    {latest && (
+                      <p className="text-xs text-base-content/50 mt-1 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3 text-success" />
+                        Last run — v{latest.version} ({latest.status})
+                        {latest.sentAt && (
+                          <span className="flex items-center gap-1 text-success">
+                            <Mail className="h-3 w-3" />
+                            Sent
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                  <ToolRunner
+                    caseId={caseData.id}
+                    caseTitle={caseData.title}
+                    toolId={t.id}
+                    toolLabel={t.label}
+                    latest={latest}
+                    sources={readySources}
+                    send={send}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      <p className="text-xs text-base-content/50 mt-4">
+        Each tool drafts with Opus from the case summary and selected sources; refine the draft by
+        chat in the run dialog.
+      </p>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import startCase from 'lodash/startCase';
 import { Briefcase, Inbox, LogOut, Scale, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { auth, signOut } from '@/auth';
@@ -10,7 +11,7 @@ export default async function Header() {
   const pending = session ? await countPendingTriage().catch(() => 0) : 0;
 
   return (
-    <div className="navbar bg-base-100 shadow-sm border-b">
+    <div className="navbar bg-base-100 shadow-xs border-b sticky top-0 z-50">
       <div className="navbar-start gap-1">
         <Link href="/" className="btn btn-ghost text-xl gap-2">
           <Scale className="h-6 w-6 text-primary" />
@@ -36,7 +37,7 @@ export default async function Header() {
             Settings
           </Link>
           <span className="text-sm text-base-content/60 px-2 hidden sm:inline">
-            {session.user?.name ?? session.user?.email}
+            {session.user?.name ? startCase(session.user.name) : session.user?.email}
           </span>
           <form
             action={async () => {

@@ -110,7 +110,7 @@ export default function NewCaseButton({ clients, variant = 'default' }: Props) {
 
           <form onSubmit={handleSubmit} className="mt-4 space-y-3">
             {/* Client: existing vs new */}
-            <div role="tablist" className="tabs tabs-boxed w-fit">
+            <div role="tablist" className="tabs tabs-box w-fit">
               <button
                 type="button"
                 role="tab"

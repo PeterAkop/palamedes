@@ -1,48 +1,15 @@
 import { eq } from 'drizzle-orm';
 import { db, firmSettings } from '@/db/db';
+import { FIRM_TEXT_FIELDS, type FirmDetails, type FirmTextField } from '@/lib/firm/fields';
 
 // Owner-scoped firm details (letterhead / signatory / boilerplate) that
 // prefill generated client-facing letters. One row per owner, upserted.
+// Field shapes live in `./fields` so the client form can import them
+// without pulling in this DB module.
 
-// View-model: all optional strings. The UI binds to this; the tool
-// context builder reads it to fold real firm details into drafts.
-export interface FirmDetails {
-  firmName?: string;
-  address?: string;
-  phone?: string;
-  email?: string;
-  website?: string;
-  sraNumber?: string;
-  vatNumber?: string;
-  logoBlobPath?: string;
-  signatoryName?: string;
-  signatoryTitle?: string;
-  signatoryEmail?: string;
-  assistingFeeEarner?: string;
-  referencePrefix?: string;
-  complaintsFooter?: string;
-  bankDetails?: string;
-}
-
-// The editable fields (everything except logo, which is an upload).
-export const FIRM_TEXT_FIELDS = [
-  'firmName',
-  'address',
-  'phone',
-  'email',
-  'website',
-  'sraNumber',
-  'vatNumber',
-  'signatoryName',
-  'signatoryTitle',
-  'signatoryEmail',
-  'assistingFeeEarner',
-  'referencePrefix',
-  'complaintsFooter',
-  'bankDetails',
-] as const;
-
-export type FirmTextField = (typeof FIRM_TEXT_FIELDS)[number];
+export type { FirmDetails, FirmTextField };
+// Re-export for existing server callers that import from here.
+export { FIRM_TEXT_FIELDS };
 
 function toView(row: typeof firmSettings.$inferSelect | undefined): FirmDetails {
   if (!row) return {};
