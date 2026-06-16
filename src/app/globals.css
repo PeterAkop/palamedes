@@ -6,6 +6,9 @@
   themes: corporate --default, dark;
 }
 
+/* `prose` classes for rendering generated letters / markdown. */
+@plugin "@tailwindcss/typography";
+
 /* Compatibility shims for daisyUI v4 form helpers removed in v5
    (form-control / label / label-text). Re-added here so the existing
    form markup keeps rendering as before without editing every site.
