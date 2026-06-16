@@ -1,15 +1,8 @@
+import startCase from 'lodash/startCase';
 import { Briefcase, Inbox, LogOut, Scale, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { auth, signOut } from '@/auth';
 import { countPendingTriage } from '@/lib/triage/queries';
-
-// Capitalise the first letter of each word for the display name
-// ("peter akop" → "Peter Akop"). Only touches word-starts, so it
-// preserves surnames with apostrophes/hyphens (O'Brien, Jean-Paul)
-// that lodash's startCase would split apart.
-function toTitleCase(name: string): string {
-  return name.replace(/\b\p{L}/gu, (c) => c.toUpperCase());
-}
 
 export default async function Header() {
   const session = await auth();
@@ -44,7 +37,7 @@ export default async function Header() {
             Settings
           </Link>
           <span className="text-sm text-base-content/60 px-2 hidden sm:inline">
-            {session.user?.name ? toTitleCase(session.user.name) : session.user?.email}
+            {session.user?.name ? startCase(session.user.name) : session.user?.email}
           </span>
           <form
             action={async () => {
