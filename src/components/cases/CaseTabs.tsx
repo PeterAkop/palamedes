@@ -15,6 +15,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useMemo, useState } from 'react';
 import {
   CASE_STATUS_LABEL,
   CASE_TYPE_LABEL,
@@ -237,7 +238,66 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
 
 // --- Sources tab ----------------------------------------------------------
 
+const SOURCES_PAGE_SIZE = 10;
+
 function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) {
+  const [kind, setKind] = useState<SourceKind | 'all'>('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [page, setPage] = useState(1);
+
+  // Kinds actually present on this case — drives the type dropdown so
+  // we don't offer empty filters.
+  const kindsPresent = useMemo(() => {
+    const set = new Set<SourceKind>();
+    for (const s of sources) set.add(s.kind);
+    return Array.from(set);
+  }, [sources]);
+
+  // Apply the type + date-range filters. Date filters compare on the
+  // source's received date (YYYY-MM-DD); undated sources are excluded
+  // only when a date filter is active.
+  const filtered = useMemo(() => {
+    return sources.filter((s) => {
+      if (kind !== 'all' && s.kind !== kind) return false;
+      if (from || to) {
+        if (!s.sourceReceivedAt) return false;
+        const d = s.sourceReceivedAt.slice(0, 10);
+        if (from && d < from) return false;
+        if (to && d > to) return false;
+      }
+      return true;
+    });
+  }, [sources, kind, from, to]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / SOURCES_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageItems = filtered.slice(
+    (currentPage - 1) * SOURCES_PAGE_SIZE,
+    currentPage * SOURCES_PAGE_SIZE,
+  );
+
+  // Changing a filter resets to the first page.
+  const onKind = (v: SourceKind | 'all') => {
+    setKind(v);
+    setPage(1);
+  };
+  const onFrom = (v: string) => {
+    setFrom(v);
+    setPage(1);
+  };
+  const onTo = (v: string) => {
+    setTo(v);
+    setPage(1);
+  };
+  const clearFilters = () => {
+    setKind('all');
+    setFrom('');
+    setTo('');
+    setPage(1);
+  };
+  const filtersActive = kind !== 'all' || from !== '' || to !== '';
+
   return (
     <div className="card bg-base-100 border border-base-300">
       <div className="card-body">
@@ -259,11 +319,97 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
             <p>No sources yet — upload files, add notes, or paste WhatsApp / email content.</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {sources.map((src) => (
-              <SourceRow key={src.id} source={src} />
-            ))}
-          </div>
+          <>
+            {/* Filter bar */}
+            <div className="flex flex-wrap items-end gap-3 mt-1 mb-2">
+              <label className="form-control">
+                <span className="label-text text-xs text-base-content/60 pb-0.5">Type</span>
+                <select
+                  className="select select-bordered select-sm"
+                  value={kind}
+                  onChange={(e) => onKind(e.target.value as SourceKind | 'all')}
+                >
+                  <option value="all">All types</option>
+                  {kindsPresent.map((k) => (
+                    <option key={k} value={k}>
+                      {SOURCE_KIND_LABEL[k]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs text-base-content/60 pb-0.5">From</span>
+                <input
+                  type="date"
+                  className="input input-bordered input-sm"
+                  value={from}
+                  max={to || undefined}
+                  onChange={(e) => onFrom(e.target.value)}
+                />
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs text-base-content/60 pb-0.5">To</span>
+                <input
+                  type="date"
+                  className="input input-bordered input-sm"
+                  value={to}
+                  min={from || undefined}
+                  onChange={(e) => onTo(e.target.value)}
+                />
+              </label>
+              {filtersActive && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {filtered.length === 0 ? (
+              <div className="text-center py-8 text-base-content/50">
+                <p>No sources match the current filters.</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {pageItems.map((src) => (
+                    <SourceRow key={src.id} source={src} />
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between mt-3">
+                    <span className="text-xs text-base-content/50">
+                      Showing {(currentPage - 1) * SOURCES_PAGE_SIZE + 1}–
+                      {Math.min(currentPage * SOURCES_PAGE_SIZE, filtered.length)} of{' '}
+                      {filtered.length}
+                    </span>
+                    <div className="join">
+                      <button
+                        type="button"
+                        className="join-item btn btn-sm"
+                        disabled={currentPage <= 1}
+                        onClick={() => setPage(currentPage - 1)}
+                      >
+                        Prev
+                      </button>
+                      <span className="join-item btn btn-sm btn-disabled !text-base-content">
+                        Page {currentPage} / {totalPages}
+                      </span>
+                      <button
+                        type="button"
+                        className="join-item btn btn-sm"
+                        disabled={currentPage >= totalPages}
+                        onClick={() => setPage(currentPage + 1)}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </>
         )}
       </div>
     </div>
