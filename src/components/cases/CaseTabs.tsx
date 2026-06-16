@@ -568,7 +568,11 @@ function SourceStatusBadge({ status }: { status: Source['status'] }) {
 }
 
 function formatShortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 // --- Tools tab ------------------------------------------------------------
