@@ -385,25 +385,17 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
                       {filtered.length}
                     </span>
                     <div className="join">
-                      <button
-                        type="button"
-                        className="join-item btn btn-sm"
-                        disabled={currentPage <= 1}
-                        onClick={() => setPage(currentPage - 1)}
-                      >
-                        Prev
-                      </button>
-                      <span className="join-item btn btn-sm btn-disabled !text-base-content">
-                        Page {currentPage} / {totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        className="join-item btn btn-sm"
-                        disabled={currentPage >= totalPages}
-                        onClick={() => setPage(currentPage + 1)}
-                      >
-                        Next
-                      </button>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                        <input
+                          key={n}
+                          type="radio"
+                          name="sources-page"
+                          aria-label={String(n)}
+                          className="join-item btn btn-sm btn-square"
+                          checked={currentPage === n}
+                          onChange={() => setPage(n)}
+                        />
+                      ))}
                     </div>
                   </div>
                 )}
