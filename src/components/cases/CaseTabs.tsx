@@ -274,25 +274,35 @@ function SourceRow({ source }: { source: Source }) {
   const Icon = SOURCE_KIND_ICON[source.kind];
   return (
     <details className="collapse collapse-arrow bg-base-100 border border-base-300">
-      <summary className="collapse-title !py-2.5 min-h-0 pr-10 cursor-pointer">
-        <div className="flex items-center gap-3">
-          <Icon className="h-4 w-4 shrink-0 text-base-content/50" />
-          <span className="font-medium truncate min-w-0 flex-1">{source.title}</span>
-          {source.metadata?.origin === 'outlook' && (
-            <span
-              className="badge badge-outline badge-xs gap-1 shrink-0"
-              title="Imported from Outlook"
-            >
-              <Mail className="h-3 w-3" />
-              Outlook
-            </span>
-          )}
-          <SourceStatusBadge status={source.status} />
-          <span className="text-xs text-base-content/60 shrink-0 whitespace-nowrap">
-            {SOURCE_KIND_LABEL[source.kind]}
-            {source.sourceReceivedAt && ` · ${formatShortDate(source.sourceReceivedAt)}`}
-          </span>
-          <SourceActions sourceId={source.id} status={source.status} />
+      <summary className="collapse-title !py-3 min-h-0 pr-10 cursor-pointer">
+        <div className="flex items-start gap-3">
+          <Icon className="h-4 w-4 shrink-0 text-base-content/50 mt-1" />
+          <div className="min-w-0 flex-1 flex flex-col gap-2">
+            {/* Top row: title (left) · status labels (right) */}
+            <div className="flex items-start justify-between gap-3">
+              <span className="font-medium min-w-0 line-clamp-2 break-words">{source.title}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                {source.metadata?.origin === 'outlook' && (
+                  <span
+                    className="badge badge-outline badge-xs gap-1"
+                    title="Imported from Outlook"
+                  >
+                    <Mail className="h-3 w-3" />
+                    Outlook
+                  </span>
+                )}
+                <SourceStatusBadge status={source.status} />
+              </div>
+            </div>
+            {/* Bottom row: type · date (left) · actions (right) */}
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-base-content/60 whitespace-nowrap">
+                {SOURCE_KIND_LABEL[source.kind]}
+                {source.sourceReceivedAt && ` · ${formatShortDate(source.sourceReceivedAt)}`}
+              </span>
+              <SourceActions sourceId={source.id} status={source.status} />
+            </div>
+          </div>
         </div>
       </summary>
       <div className="collapse-content !pb-3 space-y-2 text-sm">
