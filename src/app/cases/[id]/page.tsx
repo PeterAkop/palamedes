@@ -76,7 +76,7 @@ export default async function CaseDetailPage({ params }: Props) {
         <div className="min-w-0">
           <h1 className="text-2xl font-bold truncate">{caseData.title}</h1>
           <p className="text-sm text-base-content/60 mt-1 flex items-center gap-2 flex-wrap">
-            <span>{clientLabel}</span>
+            <span className="text-primary font-medium">{clientLabel}</span>
             <span className="text-base-content/30">·</span>
             <span>{CASE_TYPE_LABEL[caseData.caseType]}</span>
             <span className="text-base-content/30">·</span>
