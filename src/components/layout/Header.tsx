@@ -10,7 +10,7 @@ export default async function Header() {
   const pending = session ? await countPendingTriage().catch(() => 0) : 0;
 
   return (
-    <div className="navbar bg-base-100 shadow-sm border-b">
+    <div className="navbar bg-base-100 shadow-sm border-b sticky top-0 z-50">
       <div className="navbar-start gap-1">
         <Link href="/" className="btn btn-ghost text-xl gap-2">
           <Scale className="h-6 w-6 text-primary" />
