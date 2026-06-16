@@ -15,7 +15,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import {
   CASE_STATUS_LABEL,
   CASE_TYPE_LABEL,
@@ -59,46 +59,43 @@ export default function CaseTabs({ caseData, client, send }: Props) {
     router.replace(qs ? `?${qs}` : '?', { scroll: false });
   }
 
-  return (
-    <div className="space-y-4">
-      <Tablist active={activeTab} onChange={setTab} sourceCount={caseData.sources.length} />
-      {activeTab === 'overview' && <OverviewTab caseData={caseData} client={client} />}
-      {activeTab === 'sources' && <SourcesTab caseId={caseData.id} sources={caseData.sources} />}
-      {activeTab === 'tools' && <ToolsTab caseData={caseData} send={send} />}
-    </div>
-  );
-}
-
-// --- Tablist --------------------------------------------------------------
-
-interface TablistProps {
-  active: TabId;
-  onChange: (tab: TabId) => void;
-  sourceCount: number;
-}
-
-function Tablist({ active, onChange, sourceCount }: TablistProps) {
   const tabs: Array<{ id: TabId; label: string; badge?: string }> = [
     { id: 'overview', label: 'Overview' },
-    { id: 'sources', label: 'Sources', badge: String(sourceCount) },
+    { id: 'sources', label: 'Sources', badge: String(caseData.sources.length) },
     { id: 'tools', label: 'Tools' },
   ];
+
+  // daisyUI tabs-lift: each tab is followed by its tab-content panel, so
+  // the active tab merges into the content as one piece. Only the active
+  // tab's panel is rendered (its adjacency to the active tab is what
+  // makes daisyUI show it; `order:1; width:100%` lays it out below the
+  // tab row).
   return (
     <div role="tablist" className="tabs tabs-lift">
       {tabs.map((t) => {
-        const isActive = t.id === active;
+        const isActive = t.id === activeTab;
         return (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            onClick={() => onChange(t.id)}
-            className={`tab gap-2 ${isActive ? 'tab-active font-semibold' : ''}`}
-          >
-            {t.label}
-            {t.badge && <span className="badge badge-ghost badge-sm">{t.badge}</span>}
-          </button>
+          <Fragment key={t.id}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setTab(t.id)}
+              className={`tab gap-2 ${isActive ? 'tab-active font-semibold' : ''}`}
+            >
+              {t.label}
+              {t.badge && <span className="badge badge-ghost badge-sm">{t.badge}</span>}
+            </button>
+            {isActive && (
+              <div role="tabpanel" className="tab-content bg-base-100 border-base-300 p-4 sm:p-6">
+                {t.id === 'overview' && <OverviewTab caseData={caseData} client={client} />}
+                {t.id === 'sources' && (
+                  <SourcesTab caseId={caseData.id} sources={caseData.sources} />
+                )}
+                {t.id === 'tools' && <ToolsTab caseData={caseData} send={send} />}
+              </div>
+            )}
+          </Fragment>
         );
       })}
     </div>
@@ -299,111 +296,109 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
   const filtersActive = kind !== 'all' || from !== '' || to !== '';
 
   return (
-    <div className="card bg-base-100 border border-base-300">
-      <div className="card-body">
-        <div className="flex items-center justify-between">
-          <h2 className="card-title text-base">
-            Sources
-            <span className="badge badge-ghost badge-sm">{sources.length}</span>
-          </h2>
-          <div className="flex items-center gap-2">
-            <AddNoteButton caseId={caseId} />
-            <PasteButton caseId={caseId} />
-            <UploadButton caseId={caseId} />
-          </div>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="card-title text-base">
+          Sources
+          <span className="badge badge-ghost badge-sm">{sources.length}</span>
+        </h2>
+        <div className="flex items-center gap-2">
+          <AddNoteButton caseId={caseId} />
+          <PasteButton caseId={caseId} />
+          <UploadButton caseId={caseId} />
         </div>
-
-        {sources.length === 0 ? (
-          <div className="text-center py-10 text-base-content/50">
-            <Files className="h-8 w-8 mx-auto mb-2 text-base-content/30" />
-            <p>No sources yet — upload files, add notes, or paste WhatsApp / email content.</p>
-          </div>
-        ) : (
-          <>
-            {/* Filter bar */}
-            <div className="flex flex-wrap items-end gap-3 mt-1 mb-2">
-              <label className="form-control">
-                <span className="label-text text-xs text-base-content/60 pb-0.5">Type</span>
-                <select
-                  className="select select-bordered select-sm"
-                  value={kind}
-                  onChange={(e) => onKind(e.target.value as SourceKind | 'all')}
-                >
-                  <option value="all">All types</option>
-                  {kindsPresent.map((k) => (
-                    <option key={k} value={k}>
-                      {SOURCE_KIND_LABEL[k]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="form-control">
-                <span className="label-text text-xs text-base-content/60 pb-0.5">From</span>
-                <input
-                  type="date"
-                  className="input input-bordered input-sm"
-                  value={from}
-                  max={to || undefined}
-                  onChange={(e) => onFrom(e.target.value)}
-                />
-              </label>
-              <label className="form-control">
-                <span className="label-text text-xs text-base-content/60 pb-0.5">To</span>
-                <input
-                  type="date"
-                  className="input input-bordered input-sm"
-                  value={to}
-                  min={from || undefined}
-                  onChange={(e) => onTo(e.target.value)}
-                />
-              </label>
-              {filtersActive && (
-                <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>
-                  Clear
-                </button>
-              )}
-            </div>
-
-            {filtered.length === 0 ? (
-              <div className="text-center py-8 text-base-content/50">
-                <p>No sources match the current filters.</p>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  {pageItems.map((src) => (
-                    <SourceRow key={src.id} source={src} />
-                  ))}
-                </div>
-
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-3">
-                    <span className="text-xs text-base-content/50">
-                      Showing {(currentPage - 1) * SOURCES_PAGE_SIZE + 1}–
-                      {Math.min(currentPage * SOURCES_PAGE_SIZE, filtered.length)} of{' '}
-                      {filtered.length}
-                    </span>
-                    <div className="join">
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
-                        <input
-                          key={n}
-                          type="radio"
-                          name="sources-page"
-                          aria-label={String(n)}
-                          className="join-item btn btn-sm btn-square"
-                          checked={currentPage === n}
-                          onChange={() => setPage(n)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </>
-        )}
       </div>
+
+      {sources.length === 0 ? (
+        <div className="text-center py-10 text-base-content/50">
+          <Files className="h-8 w-8 mx-auto mb-2 text-base-content/30" />
+          <p>No sources yet — upload files, add notes, or paste WhatsApp / email content.</p>
+        </div>
+      ) : (
+        <>
+          {/* Filter bar */}
+          <div className="flex flex-wrap items-end gap-3 mt-1 mb-2">
+            <label className="form-control">
+              <span className="label-text text-xs text-base-content/60 pb-0.5">Type</span>
+              <select
+                className="select select-bordered select-sm"
+                value={kind}
+                onChange={(e) => onKind(e.target.value as SourceKind | 'all')}
+              >
+                <option value="all">All types</option>
+                {kindsPresent.map((k) => (
+                  <option key={k} value={k}>
+                    {SOURCE_KIND_LABEL[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs text-base-content/60 pb-0.5">From</span>
+              <input
+                type="date"
+                className="input input-bordered input-sm"
+                value={from}
+                max={to || undefined}
+                onChange={(e) => onFrom(e.target.value)}
+              />
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs text-base-content/60 pb-0.5">To</span>
+              <input
+                type="date"
+                className="input input-bordered input-sm"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => onTo(e.target.value)}
+              />
+            </label>
+            {filtersActive && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={clearFilters}>
+                Clear
+              </button>
+            )}
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="text-center py-8 text-base-content/50">
+              <p>No sources match the current filters.</p>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                {pageItems.map((src) => (
+                  <SourceRow key={src.id} source={src} />
+                ))}
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-3">
+                  <span className="text-xs text-base-content/50">
+                    Showing {(currentPage - 1) * SOURCES_PAGE_SIZE + 1}–
+                    {Math.min(currentPage * SOURCES_PAGE_SIZE, filtered.length)} of{' '}
+                    {filtered.length}
+                  </span>
+                  <div className="join">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                      <input
+                        key={n}
+                        type="radio"
+                        name="sources-page"
+                        aria-label={String(n)}
+                        className="join-item btn btn-sm btn-square"
+                        checked={currentPage === n}
+                        onChange={() => setPage(n)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -591,63 +586,61 @@ function ToolsTab({ caseData, send }: { caseData: Case; send: SendConfig }) {
     .map((s) => ({ id: s.id, title: s.title, kind: s.kind }));
 
   return (
-    <div className="card bg-base-100 border border-base-300">
-      <div className="card-body">
-        <div className="flex items-center justify-between">
-          <h2 className="card-title text-base gap-2">
-            <Wrench className="h-4 w-4 text-primary" />
-            Tools
-          </h2>
-        </div>
-
-        {Object.entries(grouped).map(([category, tools]) => (
-          <div key={category} className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-base-content/50 pt-2">{category}</p>
-            <div className="space-y-2">
-              {tools.map((t) => {
-                const latest = latestByTool.get(t.id);
-                return (
-                  <div
-                    key={t.id}
-                    className="border border-base-300 rounded-md p-3 flex items-start gap-3"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium">{t.label}</p>
-                      <p className="text-xs text-base-content/60 mt-0.5">{t.description}</p>
-                      {latest && (
-                        <p className="text-xs text-base-content/50 mt-1 flex items-center gap-1">
-                          <CheckCircle2 className="h-3 w-3 text-success" />
-                          Last run — v{latest.version} ({latest.status})
-                          {latest.sentAt && (
-                            <span className="flex items-center gap-1 text-success">
-                              <Mail className="h-3 w-3" />
-                              Sent
-                            </span>
-                          )}
-                        </p>
-                      )}
-                    </div>
-                    <ToolRunner
-                      caseId={caseData.id}
-                      caseTitle={caseData.title}
-                      toolId={t.id}
-                      toolLabel={t.label}
-                      latest={latest}
-                      sources={readySources}
-                      send={send}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-
-        <p className="text-xs text-base-content/50 mt-4">
-          Each tool drafts with Opus from the case summary and selected sources; refine the draft by
-          chat in the run dialog.
-        </p>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <h2 className="card-title text-base gap-2">
+          <Wrench className="h-4 w-4 text-primary" />
+          Tools
+        </h2>
       </div>
+
+      {Object.entries(grouped).map(([category, tools]) => (
+        <div key={category} className="space-y-2">
+          <p className="text-xs uppercase tracking-wide text-base-content/50 pt-2">{category}</p>
+          <div className="space-y-2">
+            {tools.map((t) => {
+              const latest = latestByTool.get(t.id);
+              return (
+                <div
+                  key={t.id}
+                  className="border border-base-300 rounded-md p-3 flex items-start gap-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">{t.label}</p>
+                    <p className="text-xs text-base-content/60 mt-0.5">{t.description}</p>
+                    {latest && (
+                      <p className="text-xs text-base-content/50 mt-1 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3 text-success" />
+                        Last run — v{latest.version} ({latest.status})
+                        {latest.sentAt && (
+                          <span className="flex items-center gap-1 text-success">
+                            <Mail className="h-3 w-3" />
+                            Sent
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                  <ToolRunner
+                    caseId={caseData.id}
+                    caseTitle={caseData.title}
+                    toolId={t.id}
+                    toolLabel={t.label}
+                    latest={latest}
+                    sources={readySources}
+                    send={send}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      <p className="text-xs text-base-content/50 mt-4">
+        Each tool drafts with Opus from the case summary and selected sources; refine the draft by
+        chat in the run dialog.
+      </p>
     </div>
   );
 }
