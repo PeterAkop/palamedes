@@ -10,8 +10,8 @@ import { summarizeFile, summarizeNote } from '@/lib/sources/summarize';
 // Ingest one email file-attachment as a `file`/`scan` source — the same
 // flow as a manual upload (Vercel Blob + Anthropic Files API + Haiku),
 // but the bytes come from Graph's base64 `contentBytes` instead of a
-// multipart upload. Shared by every path that ingests an Outlook email
-// (pull + triage assign) via `createEmailSourceFromOutlook`.
+// multipart upload. Invoked when an Outlook email is ingested via
+// `createEmailSourceFromOutlook`.
 //
 // **Idempotent**: the source `external_id` is `<messageId>:att:<attId>`,
 // so re-pulling the same email never re-adds its attachments. Returns

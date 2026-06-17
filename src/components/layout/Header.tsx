@@ -1,14 +1,10 @@
 import startCase from 'lodash/startCase';
-import { Briefcase, Inbox, LogOut, Scale, Settings } from 'lucide-react';
+import { Briefcase, LogOut, Scale, Settings } from 'lucide-react';
 import Link from 'next/link';
 import { auth, signOut } from '@/auth';
-import { countPendingTriage } from '@/lib/triage/queries';
 
 export default async function Header() {
   const session = await auth();
-  // Pending triage count for the nav badge (only when signed in).
-  // Resilient to the mailbox_messages table not existing yet.
-  const pending = session ? await countPendingTriage().catch(() => 0) : 0;
 
   return (
     <div className="navbar bg-base-100 shadow-xs border-b sticky top-0 z-50">
@@ -27,11 +23,6 @@ export default async function Header() {
 
       {session && (
         <div className="navbar-end gap-1">
-          <Link href="/triage" className="btn btn-ghost btn-sm gap-1" title="Mailbox triage">
-            <Inbox className="h-4 w-4" />
-            Triage
-            {pending > 0 && <span className="badge badge-primary badge-sm">{pending}</span>}
-          </Link>
           <Link href="/settings" className="btn btn-ghost btn-sm gap-1" title="Settings">
             <Settings className="h-4 w-4" />
             Settings

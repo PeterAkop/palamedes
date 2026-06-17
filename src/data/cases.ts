@@ -161,22 +161,3 @@ export interface ClientOption {
   firstName: string;
   lastName: string;
 }
-
-// A case as an assignable option (triage dropdown / suggested-case label).
-export interface CaseOption {
-  id: string;
-  label: string; // e.g. "Okafor — Spouse Visa Application"
-}
-
-// A pending mailbox-triage item (view-model for the /triage list).
-export interface TriageItem {
-  id: string;
-  fromName?: string;
-  fromAddress?: string;
-  subject: string;
-  snippet: string;
-  receivedAt?: string;
-  conversationId?: string;
-  suggestedCaseId?: string;
-  suggestionReason?: string;
-}
