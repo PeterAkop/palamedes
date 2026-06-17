@@ -1,5 +1,6 @@
-import { and, eq } from 'drizzle-orm';
-import { db, type Fact, type FactType, facts } from '@/db/db';
+import { and, eq, inArray } from 'drizzle-orm';
+import type { CaseFactGroup } from '@/data/cases';
+import { db, type Fact, type FactType, facts, sources } from '@/db/db';
 
 // The case Facts Store — the read side. Aggregates the normalized fact
 // rows across every source on a case into a deterministic, deduped view.
@@ -91,6 +92,36 @@ export function groupCaseFacts(rows: Fact[]): FactGroup[] {
     label: TYPE_LABEL[type],
     facts: rows.filter((f) => f.type === type),
   })).filter((g) => g.facts.length > 0);
+}
+
+// View model for the Facts tab: grouped facts with their source title as
+// provenance. Serializable (no Date columns) so it crosses the RSC →
+// client boundary cleanly.
+export async function getCaseFactsView(caseId: string, ownerId: string): Promise<CaseFactGroup[]> {
+  const rows = await getCaseFacts(caseId, ownerId);
+  if (rows.length === 0) return [];
+
+  const sourceIds = [...new Set(rows.map((r) => r.sourceId))];
+  const srcRows = await db
+    .select({ id: sources.id, title: sources.title })
+    .from(sources)
+    .where(inArray(sources.id, sourceIds));
+  const titleById = new Map(srcRows.map((s) => [s.id, s.title]));
+
+  return groupCaseFacts(rows).map((group) => ({
+    type: group.type,
+    label: group.label,
+    facts: group.facts.map((f) => ({
+      id: f.id,
+      type: f.type as FactType,
+      label: f.label,
+      value: f.value,
+      factDate: f.factDate,
+      confidence: f.confidence,
+      sourceId: f.sourceId,
+      sourceTitle: titleById.get(f.sourceId) ?? 'Unknown source',
+    })),
+  }));
 }
 
 // Render the facts as a stable, plain-text "facts sheet" for a Pass-2

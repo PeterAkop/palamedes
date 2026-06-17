@@ -6,6 +6,7 @@ import OutlookCaseActions from '@/components/cases/OutlookCaseActions';
 import { CASE_STATUS_LABEL, CASE_TYPE_LABEL } from '@/data/cases';
 import { getCurrentUserId } from '@/lib/auth';
 import { getCaseById, getClientById } from '@/lib/cases/queries';
+import { getCaseFactsView } from '@/lib/facts/case';
 import { sendToClientEnabled } from '@/lib/flags';
 import { getConnection } from '@/lib/outlook/tokens';
 
@@ -36,6 +37,9 @@ export default async function CaseDetailPage({ params }: Props) {
 
   const client = await getClientById(caseData.clientId);
   const clientLabel = client ? `${client.firstName} ${client.lastName}` : 'Unknown client';
+
+  // Structured facts (Pass 1) grouped for the Facts tab.
+  const factGroups = await getCaseFactsView(caseData.id, await getCurrentUserId());
 
   // Outlook connection status for this owner. Resilient to the
   // integration_tokens table not existing yet (pre-migration) so the
@@ -102,7 +106,7 @@ export default async function CaseDetailPage({ params }: Props) {
         </div>
       </div>
 
-      <CaseTabs caseData={caseData} client={client} send={sendConfig} />
+      <CaseTabs caseData={caseData} client={client} send={sendConfig} facts={factGroups} />
     </div>
   );
 }

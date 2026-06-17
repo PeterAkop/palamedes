@@ -3,6 +3,7 @@
 import {
   Calendar,
   CheckCircle2,
+  ClipboardList,
   ExternalLink,
   Files,
   FileText,
@@ -20,6 +21,7 @@ import {
   CASE_STATUS_LABEL,
   CASE_TYPE_LABEL,
   type Case,
+  type CaseFactGroup,
   type Client,
   type SendConfig,
   SOURCE_KIND_LABEL,
@@ -35,17 +37,18 @@ import SourceActions from './SourceActions';
 import ToolRunner from './ToolRunner';
 import UploadButton from './UploadButton';
 
-type TabId = 'overview' | 'sources' | 'tools';
-const TAB_IDS: readonly TabId[] = ['overview', 'sources', 'tools'] as const;
+type TabId = 'overview' | 'sources' | 'facts' | 'tools';
+const TAB_IDS: readonly TabId[] = ['overview', 'sources', 'facts', 'tools'] as const;
 const DEFAULT_TAB: TabId = 'overview';
 
 interface Props {
   caseData: Case;
   client: Client | undefined;
   send: SendConfig;
+  facts: CaseFactGroup[];
 }
 
-export default function CaseTabs({ caseData, client, send }: Props) {
+export default function CaseTabs({ caseData, client, send, facts }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
@@ -60,9 +63,12 @@ export default function CaseTabs({ caseData, client, send }: Props) {
     router.replace(qs ? `?${qs}` : '?', { scroll: false });
   }
 
+  const factCount = facts.reduce((n, g) => n + g.facts.length, 0);
+
   const tabs: Array<{ id: TabId; label: string; badge?: string }> = [
     { id: 'overview', label: 'Overview' },
     { id: 'sources', label: 'Sources', badge: String(caseData.sources.length) },
+    { id: 'facts', label: 'Facts', badge: String(factCount) },
     { id: 'tools', label: 'Tools' },
   ];
 
@@ -93,6 +99,7 @@ export default function CaseTabs({ caseData, client, send }: Props) {
                 {t.id === 'sources' && (
                   <SourcesTab caseId={caseData.id} sources={caseData.sources} />
                 )}
+                {t.id === 'facts' && <FactsTab groups={facts} />}
                 {t.id === 'tools' && <ToolsTab caseData={caseData} send={send} />}
               </div>
             )}
@@ -568,6 +575,75 @@ function formatShortDate(iso: string): string {
     month: 'short',
     year: 'numeric',
   });
+}
+
+// --- Facts tab ------------------------------------------------------------
+
+// Read-only view of the structured facts extracted from the case's
+// sources (Pass 1). Grouped by category, each fact carries its source as
+// provenance and a confidence badge when below 'high'.
+function FactsTab({ groups }: { groups: CaseFactGroup[] }) {
+  const total = groups.reduce((n, g) => n + g.facts.length, 0);
+
+  if (total === 0) {
+    return (
+      <div className="text-center py-10 text-base-content/50">
+        <ClipboardList className="h-8 w-8 mx-auto mb-2 text-base-content/30" />
+        <p>
+          No facts extracted yet. Facts are pulled from each source automatically as it&apos;s added
+          and analysed.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="card-title text-base gap-2">
+          <ClipboardList className="h-4 w-4 text-primary" />
+          Facts
+          <span className="badge badge-ghost badge-sm">{total}</span>
+        </h2>
+        <span className="text-xs text-base-content/50">Auto-extracted from sources</span>
+      </div>
+
+      {groups.map((group) => (
+        <div key={group.type} className="card bg-base-100 border border-base-300">
+          <div className="card-body p-4">
+            <p className="text-xs uppercase tracking-wide text-base-content/50">{group.label}</p>
+            <ul className="divide-y divide-base-200">
+              {group.facts.map((f) => (
+                <li key={f.id} className="py-1.5 flex items-start justify-between gap-3 text-sm">
+                  <div className="min-w-0">
+                    <span>
+                      {f.type === 'date' && f.factDate && (
+                        <span className="font-mono text-base-content/60 mr-2">{f.factDate}</span>
+                      )}
+                      {(f.type === 'party' || f.type === 'reference' || f.type === 'address') &&
+                        f.label && <span className="text-base-content/50 mr-1">{f.label}:</span>}
+                      <span className="text-base-content/90">{f.value}</span>
+                    </span>
+                    <span
+                      className="block text-xs text-base-content/40 truncate"
+                      title={f.sourceTitle}
+                    >
+                      from {f.sourceTitle}
+                    </span>
+                  </div>
+                  {f.confidence && f.confidence !== 'high' && (
+                    <span className="badge badge-ghost badge-xs shrink-0 mt-0.5">
+                      {f.confidence}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // --- Tools tab ------------------------------------------------------------

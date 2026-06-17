@@ -8,9 +8,9 @@
 // tables don't exist yet; this file is the only declaration of those
 // shapes until they do.
 
-import type { CaseStatus, CaseType, SourceKind, SourceStatus } from '@/db/db';
+import type { CaseStatus, CaseType, FactType, SourceKind, SourceStatus } from '@/db/db';
 
-export type { CaseStatus, CaseType, SourceKind, SourceStatus };
+export type { CaseStatus, CaseType, FactType, SourceKind, SourceStatus };
 
 export type GenerationStatus = 'running' | 'complete' | 'failed';
 
@@ -160,4 +160,26 @@ export interface ClientOption {
   id: string;
   firstName: string;
   lastName: string;
+}
+
+// --- Facts (Pass-1 extraction) view-models --------------------------------
+
+// One extracted fact, flattened for display. `sourceTitle` carries the
+// provenance so the UI can show which document a fact came from.
+export interface CaseFactView {
+  id: string;
+  type: FactType;
+  label: string | null;
+  value: string | null;
+  factDate: string | null;
+  confidence: string | null;
+  sourceId: string;
+  sourceTitle: string;
+}
+
+// Facts grouped by category for the Facts tab (e.g. "Key dates").
+export interface CaseFactGroup {
+  type: FactType;
+  label: string;
+  facts: CaseFactView[];
 }
