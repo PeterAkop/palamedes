@@ -78,6 +78,13 @@
       "when": 1781647444089,
       "tag": "0010_sudden_marvel_apes",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1781734167564,
+      "tag": "0011_daily_wonder_man",
+      "breakpoints": true
     }
   ]
 }

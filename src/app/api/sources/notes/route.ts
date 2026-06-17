@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { cases, db, sources } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
+import { extractAndStoreFacts } from '@/lib/facts/extract';
 import { summarizeNote } from '@/lib/sources/summarize';
 
 // POST /api/sources/notes — create a note source on a case and run
@@ -83,6 +84,14 @@ export async function POST(req: NextRequest) {
       })
       .where(eq(sources.id, inserted.id))
       .returning();
+
+    // Pass 1 — extract structured facts (best-effort; never fails the
+    // source). Runs after the summary so the row is already `ready`.
+    await extractAndStoreFacts(
+      { id: inserted.id, caseId, ownerId },
+      { mode: 'text', kind: 'note', title, body },
+    );
+
     return NextResponse.json({ source: updated }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';

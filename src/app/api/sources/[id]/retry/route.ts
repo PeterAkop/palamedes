@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { type NextRequest, NextResponse } from 'next/server';
 import { db, sources } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
+import { extractAndStoreFacts, extractInputFromRow } from '@/lib/facts/extract';
 import { summarizeSource } from '@/lib/sources/process';
 
 // POST /api/sources/[id]/retry — re-run the Haiku summary for a source.
@@ -44,6 +45,14 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       })
       .where(eq(sources.id, row.id))
       .returning();
+
+    // Re-run Pass 1 fact extraction too (best-effort). Uses the stored
+    // row — full fidelity for files, content_preview for text kinds.
+    const extractInput = extractInputFromRow(row);
+    if (extractInput) {
+      await extractAndStoreFacts({ id: row.id, caseId: row.caseId, ownerId }, extractInput);
+    }
+
     return NextResponse.json({ source: updated });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error';
