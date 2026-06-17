@@ -97,7 +97,6 @@ export default async function CaseDetailPage({ params }: Props) {
             caseId={caseData.id}
             connected={outlook.connected}
             accountEmail={outlook.accountEmail}
-            clientEmail={client?.email}
           />
           <DeleteCaseButton caseId={caseData.id} caseTitle={caseData.title} />
         </div>

@@ -7,22 +7,17 @@ import { revalidateCases } from '@/app/cases/actions';
 // Outlook connect / pull control in the case header.
 // - Not connected → "Connect Outlook" link that starts the OAuth flow
 //   (returns to this case afterwards).
-// - Connected → "Pull from Outlook" button that imports the case
-//   client's emails as sources (disabled if the client has no email).
+// - Connected → "Pull from Outlook" button that imports case-related
+//   emails (client participant, or client name / matter reference in the
+//   subject) as sources.
 
 interface Props {
   caseId: string;
   connected: boolean;
   accountEmail?: string;
-  clientEmail?: string;
 }
 
-export default function OutlookCaseActions({
-  caseId,
-  connected,
-  accountEmail,
-  clientEmail,
-}: Props) {
+export default function OutlookCaseActions({ caseId, connected, accountEmail }: Props) {
   const [isPulling, setIsPulling] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -51,8 +46,8 @@ export default function OutlookCaseActions({
       };
       if (!res.ok) {
         throw new Error(
-          data.error === 'no_client_email'
-            ? 'Add a client email first'
+          data.error === 'no_search_terms'
+            ? 'Add a client name, email, or reference first'
             : (data.message ?? data.error ?? 'Pull failed'),
         );
       }
@@ -72,12 +67,8 @@ export default function OutlookCaseActions({
       <button
         type="button"
         onClick={pull}
-        disabled={isPulling || !clientEmail}
-        title={
-          clientEmail
-            ? `Pull emails for ${clientEmail} (connected as ${accountEmail ?? 'Outlook'})`
-            : 'Add a client email to pull from Outlook'
-        }
+        disabled={isPulling}
+        title={`Pull case-related emails (connected as ${accountEmail ?? 'Outlook'})`}
         className="btn btn-sm btn-ghost gap-1"
       >
         {isPulling ? (
