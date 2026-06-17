@@ -7,8 +7,7 @@ import { summarizePastedMessage } from '@/lib/sources/summarize';
 // Create an `email` source from an Outlook message: insert (`processing`)
 // → Haiku summary → `ready` (or `failed` with the error). Tagged
 // `origin: 'outlook'` with the Graph message id as `external_id` for
-// dedup. Shared by the per-case pull (`pull-outlook`) and triage-assign
-// so both ingest emails identically.
+// dedup. Used by the per-case Outlook pull (`pull-outlook`).
 //
 // If the message has file attachments and an `accessToken` is provided,
 // each attachment is also ingested as its own `file`/`scan` source (see
@@ -17,9 +16,8 @@ import { summarizePastedMessage } from '@/lib/sources/summarize';
 //
 // **Idempotent**: if this message (`external_id`) is already a source on
 // the case, it's a no-op (returns `false`). This is the single dedup
-// point — so the same email can never be added to a case twice, no
-// matter the path (pull, triage assign, thread assign). Returns `true`
-// when a new source was created.
+// point — so the same email can never be added to a case twice across
+// repeated pulls. Returns `true` when a new source was created.
 export async function createEmailSourceFromOutlook(args: {
   caseId: string;
   ownerId: string;

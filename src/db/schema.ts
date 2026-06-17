@@ -385,15 +385,14 @@ export const firmSettings = pgTable(
 export type FirmSettings = typeof firmSettings.$inferSelect;
 export type NewFirmSettings = typeof firmSettings.$inferInsert;
 
-// --- Mailbox triage -------------------------------------------------------
+// --- Mailbox triage (REMOVED) ---------------------------------------------
 
-// Triage candidates: recent mailbox messages pulled for routing, before
-// the lawyer commits them to a case. Distinct from `sources` (which are
-// committed case material) — a triage item only becomes a `source` when
-// assigned. Keyed `(owner_id, external_id)` so re-syncing never
-// resurfaces an already-seen message (pending/assigned/ignored alike).
-// Haiku fills `suggested_case_id` + `suggestion_reason`; the lawyer
-// always confirms (decision support, not automation).
+// The mailbox-triage feature was removed (confusing UX). This table
+// definition is retained, unused, so the schema still matches the
+// existing database and no destructive migration is forced; nothing in
+// the app reads or writes it anymore. Drop it with a dedicated migration
+// when convenient. Emails now reach a case only via the per-case Outlook
+// pull (see `listMessagesForCase` / `pull-outlook`).
 
 export const MAILBOX_STATUSES = ['pending', 'assigned', 'ignored'] as const;
 export type MailboxStatus = (typeof MAILBOX_STATUSES)[number];

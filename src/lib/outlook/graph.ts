@@ -102,17 +102,6 @@ interface GraphAttachment {
   contentBytes?: string;
 }
 
-// Lighter shape for the triage sync — no full body (fetched on assign).
-export interface RecentMessage {
-  id: string;
-  conversationId?: string;
-  subject: string;
-  fromName?: string;
-  fromAddress?: string;
-  receivedDateTime?: string;
-  snippet: string;
-}
-
 // The connected mailbox address — stored as account_email for the UI.
 export async function getConnectedEmail(accessToken: string): Promise<string | undefined> {
   const me = await graphGet<{ mail?: string; userPrincipalName?: string }>(
@@ -235,36 +224,6 @@ export async function listMessagesForCase(
     if (rankA !== rankB) return rankA - rankB;
     return (b.receivedDateTime ?? '').localeCompare(a.receivedDateTime ?? '');
   });
-}
-
-// The N most-recent mailbox messages (any sender) for the triage inbox.
-// Ordered by date; body excluded to keep it light (full body is fetched
-// on assign via getMessageById).
-export async function listRecentMessages(accessToken: string, top = 50): Promise<RecentMessage[]> {
-  const select = 'id,conversationId,subject,from,receivedDateTime,bodyPreview';
-  const data = await graphGet<{ value?: GraphMessage[] }>(
-    accessToken,
-    `/me/messages?$top=${top}&$orderby=receivedDateTime%20desc&$select=${select}`,
-  );
-  return (data.value ?? []).map((m) => ({
-    id: m.id,
-    conversationId: m.conversationId,
-    subject: m.subject?.trim() || '(no subject)',
-    fromName: m.from?.emailAddress?.name,
-    fromAddress: m.from?.emailAddress?.address,
-    receivedDateTime: m.receivedDateTime,
-    snippet: (m.bodyPreview ?? '').trim(),
-  }));
-}
-
-// One full message by id — used on assign to get the body for the source.
-export async function getMessageById(accessToken: string, id: string): Promise<OutlookMessage> {
-  const select = 'id,conversationId,subject,from,receivedDateTime,bodyPreview,body,hasAttachments';
-  const m = await graphGet<GraphMessage>(
-    accessToken,
-    `/me/messages/${encodeURIComponent(id)}?$select=${select}`,
-  );
-  return toOutlookMessage(m);
 }
 
 // File attachments on a message. Only `fileAttachment`s with inline
