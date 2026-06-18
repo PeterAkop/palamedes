@@ -32,6 +32,7 @@ import { TOOLS } from '@/lib/tools/registry';
 import AddNoteButton from './AddNoteButton';
 import CaseReferences from './CaseReferences';
 import PasteButton from './PasteButton';
+import ReanalyzeCaseButton from './ReanalyzeCaseButton';
 import RegenerateSummaryButton from './RegenerateSummaryButton';
 import SourceActions from './SourceActions';
 import ToolRunner from './ToolRunner';
@@ -318,6 +319,7 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
           <span className="badge badge-ghost badge-sm">{sources.length}</span>
         </h2>
         <div className="flex items-center gap-2">
+          <ReanalyzeCaseButton caseId={caseId} sourceCount={sources.length} />
           <AddNoteButton caseId={caseId} />
           <PasteButton caseId={caseId} />
           <UploadButton caseId={caseId} />

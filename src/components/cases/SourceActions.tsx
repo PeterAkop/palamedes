@@ -5,9 +5,10 @@ import { useState } from 'react';
 import { revalidateCases } from '@/app/cases/actions';
 import type { SourceStatus } from '@/data/cases';
 
-// Per-source row actions: delete (always) and retry (failed only).
-// Both hit their owner-scoped routes then router.refresh() so the
-// parent server component re-fetches and the Sources list re-renders.
+// Per-source row actions: delete (always) and re-run analysis (any
+// non-processing source — re-runs summary + fact extraction). Both hit
+// their owner-scoped routes then revalidate so the Sources list
+// re-renders.
 //
 // Lives as a `'use client'` child of the server-rendered SourceRow
 // <details> so the buttons can carry onClick handlers. stopPropagation
@@ -48,14 +49,14 @@ export default function SourceActions({ sourceId, status }: Props) {
 
   return (
     <span className="flex items-center gap-1 shrink-0">
-      {status === 'failed' && (
+      {status !== 'processing' && (
         <button
           type="button"
           onClick={handleRetry}
           disabled={isPending}
           className="btn btn-ghost btn-xs btn-square"
-          aria-label="Retry summary"
-          title="Retry summary"
+          aria-label="Re-run analysis"
+          title="Re-run analysis (summary + facts)"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${isPending ? 'animate-spin' : ''}`} />
         </button>
