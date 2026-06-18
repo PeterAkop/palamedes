@@ -43,6 +43,7 @@ export async function createEmailSourceFromOutlook(args: {
       kind: 'email',
       title: m.subject,
       contentPreview: m.bodyText.slice(0, 300),
+      rawContent: m.bodyText,
       sourceReceivedAt: m.receivedDateTime ? new Date(m.receivedDateTime) : null,
       metadata: { origin: 'outlook', from, subject: m.subject },
       externalId: m.id,

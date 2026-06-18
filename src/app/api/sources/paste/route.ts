@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
       kind,
       title,
       contentPreview: body.slice(0, 300),
+      rawContent: body,
       sourceReceivedAt: receivedAt ? new Date(receivedAt) : null,
       metadata: Object.keys(metadata).length > 0 ? metadata : null,
       status: 'processing',

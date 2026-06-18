@@ -168,6 +168,12 @@ export const sources = pgTable(
     // files it stays null (the file is the content).
     contentPreview: text('content_preview'),
 
+    // Full original text for text sources (note / email / whatsapp), so
+    // re-summarisation and re-extraction run at full fidelity instead of
+    // from the truncated content_preview. Null for file/scan kinds — they
+    // keep their bytes in Blob (blob_path) / the Anthropic Files API.
+    rawContent: text('raw_content'),
+
     // When the source itself was received (email date, WhatsApp
     // message timestamp, file mod time). Distinct from created_at
     // which is when it landed in Palamedes.

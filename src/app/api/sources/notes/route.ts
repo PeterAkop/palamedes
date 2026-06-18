@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
       kind: 'note',
       title,
       contentPreview: body.slice(0, 300),
+      rawContent: body,
       status: 'processing',
     })
     .returning();

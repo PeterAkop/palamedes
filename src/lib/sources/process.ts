@@ -17,13 +17,9 @@ import {
 // with the freshly-submitted payload; this helper is the
 // summarize-from-stored-row path.
 //
-// Limitation: for text kinds (note / email / whatsapp) we only have
-// `content_preview` (the leading 300 chars stored at insert), not the
-// full original body — Palamedes doesn't persist raw text today. Retry
-// therefore re-summarizes from the preview. That's faithful for short
-// notes and good enough for the common case (retrying a transient
-// Anthropic API failure); a `raw_content` column would make it exact
-// and is a candidate for a later slice. File kinds retry at full
+// Text kinds (note / email / whatsapp) re-summarize from the persisted
+// full body (`raw_content`), falling back to `content_preview` only for
+// rows created before raw_content existed. File kinds retry at full
 // fidelity via the stored Anthropic Files API id.
 export async function summarizeSource(row: Source): Promise<SummarizeResult> {
   const metadata = (row.metadata ?? {}) as Record<string, string | undefined>;
@@ -58,7 +54,7 @@ export async function summarizeSource(row: Source): Promise<SummarizeResult> {
       return summarizePastedMessage({
         kind: row.kind,
         title: row.title,
-        body: row.contentPreview ?? '',
+        body: row.rawContent ?? row.contentPreview ?? '',
         from: metadata.from,
         subject: metadata.subject,
         fromPhone: metadata.from_phone,
@@ -67,7 +63,7 @@ export async function summarizeSource(row: Source): Promise<SummarizeResult> {
       // 'note' (and any future plain-text kind)
       return summarizeNote({
         title: row.title,
-        body: row.contentPreview ?? '',
+        body: row.rawContent ?? row.contentPreview ?? '',
       });
   }
 }

@@ -367,10 +367,11 @@ export async function extractAndStoreFacts(source: SourceRef, input: ExtractInpu
 }
 
 // Build an ExtractInput from a stored row — used by the retry path. Text
-// kinds re-extract from `content_preview` (the full body isn't persisted,
-// same limitation as summary retry); file kinds re-extract at full
-// fidelity via the stored Anthropic file id. Returns null when there's
-// nothing usable to extract from (e.g. a file row missing its file id).
+// kinds re-extract from the persisted full body (`raw_content`), falling
+// back to `content_preview` for rows created before raw_content existed;
+// file kinds re-extract at full fidelity via the stored Anthropic file
+// id. Returns null when there's nothing usable to extract from (e.g. a
+// file row missing its file id).
 export function extractInputFromRow(row: Source): ExtractInput | null {
   const meta = (row.metadata ?? {}) as Record<string, string | undefined>;
   switch (row.kind) {
@@ -389,12 +390,17 @@ export function extractInputFromRow(row: Source): ExtractInput | null {
         mode: 'text',
         kind: row.kind,
         title: row.title,
-        body: row.contentPreview ?? '',
+        body: row.rawContent ?? row.contentPreview ?? '',
         from: meta.from,
         subject: meta.subject,
         fromPhone: meta.from_phone,
       };
     default:
-      return { mode: 'text', kind: 'note', title: row.title, body: row.contentPreview ?? '' };
+      return {
+        mode: 'text',
+        kind: 'note',
+        title: row.title,
+        body: row.rawContent ?? row.contentPreview ?? '',
+      };
   }
 }
