@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { db, sources } from '@/db/db';
 import { anthropic } from '@/lib/anthropic';
 import { uploadSourceFile } from '@/lib/blob';
+import { extractAndStoreFacts } from '@/lib/facts/extract';
 import type { OutlookAttachment } from '@/lib/outlook/graph';
 import { DOCX_MIME, extractDocxText } from '@/lib/sources/docx';
 import { summarizeFile, summarizeNote } from '@/lib/sources/summarize';
@@ -104,6 +105,11 @@ export async function ingestEmailAttachment(args: {
           updatedAt: new Date(),
         })
         .where(eq(sources.id, inserted.id));
+      // Pass 1 — extract structured facts from the attachment (best-effort).
+      await extractAndStoreFacts(
+        { id: inserted.id, caseId, ownerId },
+        { mode: 'file', title: a.name, mimeType: a.contentType, anthropicFileId: anthropicFile.id },
+      );
     } else if (a.contentType === DOCX_MIME) {
       // .docx → extract text locally, then summarise as text. Empty
       // extraction (image-only / unparsable doc) stays summary-less.
@@ -119,6 +125,13 @@ export async function ingestEmailAttachment(args: {
         update.aiSummaryModel = model;
       }
       await db.update(sources).set(update).where(eq(sources.id, inserted.id));
+      // Pass 1 — extract structured facts from the extracted docx text.
+      if (text.trim()) {
+        await extractAndStoreFacts(
+          { id: inserted.id, caseId, ownerId },
+          { mode: 'text', kind: 'note', title: a.name, body: text },
+        );
+      }
     } else {
       await db
         .update(sources)

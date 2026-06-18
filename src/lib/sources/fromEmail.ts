@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { db, sources } from '@/db/db';
+import { extractAndStoreFacts } from '@/lib/facts/extract';
 import { listMessageAttachments, type OutlookMessage } from '@/lib/outlook/graph';
 import { ingestEmailAttachment } from '@/lib/sources/attachments';
 import { summarizePastedMessage } from '@/lib/sources/summarize';
@@ -42,6 +43,7 @@ export async function createEmailSourceFromOutlook(args: {
       kind: 'email',
       title: m.subject,
       contentPreview: m.bodyText.slice(0, 300),
+      rawContent: m.bodyText,
       sourceReceivedAt: m.receivedDateTime ? new Date(m.receivedDateTime) : null,
       metadata: { origin: 'outlook', from, subject: m.subject },
       externalId: m.id,
@@ -61,6 +63,12 @@ export async function createEmailSourceFromOutlook(args: {
       .update(sources)
       .set({ status: 'ready', aiSummary: summary, aiSummaryModel: model, updatedAt: new Date() })
       .where(eq(sources.id, inserted.id));
+
+    // Pass 1 — extract structured facts from the email body (best-effort).
+    await extractAndStoreFacts(
+      { id: inserted.id, caseId, ownerId },
+      { mode: 'text', kind: 'email', title: m.subject, body: m.bodyText, from, subject: m.subject },
+    );
   } catch (err) {
     await db
       .update(sources)

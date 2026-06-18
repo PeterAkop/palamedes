@@ -1,5 +1,7 @@
-import type { Source } from '@/db/db';
+import { eq } from 'drizzle-orm';
+import { db, type Source, sources } from '@/db/db';
 import { getSourceFileStream } from '@/lib/blob';
+import { extractAndStoreFacts, extractInputFromRow } from '@/lib/facts/extract';
 import { DOCX_MIME, extractDocxText } from '@/lib/sources/docx';
 import {
   type SummarizeResult,
@@ -15,13 +17,9 @@ import {
 // with the freshly-submitted payload; this helper is the
 // summarize-from-stored-row path.
 //
-// Limitation: for text kinds (note / email / whatsapp) we only have
-// `content_preview` (the leading 300 chars stored at insert), not the
-// full original body — Palamedes doesn't persist raw text today. Retry
-// therefore re-summarizes from the preview. That's faithful for short
-// notes and good enough for the common case (retrying a transient
-// Anthropic API failure); a `raw_content` column would make it exact
-// and is a candidate for a later slice. File kinds retry at full
+// Text kinds (note / email / whatsapp) re-summarize from the persisted
+// full body (`raw_content`), falling back to `content_preview` only for
+// rows created before raw_content existed. File kinds retry at full
 // fidelity via the stored Anthropic Files API id.
 export async function summarizeSource(row: Source): Promise<SummarizeResult> {
   const metadata = (row.metadata ?? {}) as Record<string, string | undefined>;
@@ -56,7 +54,7 @@ export async function summarizeSource(row: Source): Promise<SummarizeResult> {
       return summarizePastedMessage({
         kind: row.kind,
         title: row.title,
-        body: row.contentPreview ?? '',
+        body: row.rawContent ?? row.contentPreview ?? '',
         from: metadata.from,
         subject: metadata.subject,
         fromPhone: metadata.from_phone,
@@ -65,7 +63,47 @@ export async function summarizeSource(row: Source): Promise<SummarizeResult> {
       // 'note' (and any future plain-text kind)
       return summarizeNote({
         title: row.title,
-        body: row.contentPreview ?? '',
+        body: row.rawContent ?? row.contentPreview ?? '',
       });
   }
+}
+
+// Re-run a stored source end-to-end: flip to `processing`, re-summarise
+// and re-extract facts (Pass 1), landing it `ready` or `failed`. Shared by
+// the per-source retry route and the whole-case re-analyse route. Facts
+// extraction is best-effort and won't flip a summarised source to failed.
+// Returns the final row.
+export async function reprocessSource(row: Source): Promise<Source> {
+  await db
+    .update(sources)
+    .set({ status: 'processing', errorMessage: null, updatedAt: new Date() })
+    .where(eq(sources.id, row.id));
+
+  let updated: Source;
+  try {
+    const { summary, model } = await summarizeSource(row);
+    [updated] = await db
+      .update(sources)
+      .set({ status: 'ready', aiSummary: summary, aiSummaryModel: model, updatedAt: new Date() })
+      .where(eq(sources.id, row.id))
+      .returning();
+  } catch (err) {
+    [updated] = await db
+      .update(sources)
+      .set({
+        status: 'failed',
+        errorMessage: err instanceof Error ? err.message : 'analysis failed',
+        updatedAt: new Date(),
+      })
+      .where(eq(sources.id, row.id))
+      .returning();
+    return updated;
+  }
+
+  // Pass 1 — re-extract facts (best-effort; the source is already ready).
+  const input = extractInputFromRow(row);
+  if (input) {
+    await extractAndStoreFacts({ id: row.id, caseId: row.caseId, ownerId: row.ownerId }, input);
+  }
+  return updated;
 }

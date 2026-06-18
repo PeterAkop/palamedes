@@ -168,6 +168,12 @@ export const sources = pgTable(
     // files it stays null (the file is the content).
     contentPreview: text('content_preview'),
 
+    // Full original text for text sources (note / email / whatsapp), so
+    // re-summarisation and re-extraction run at full fidelity instead of
+    // from the truncated content_preview. Null for file/scan kinds — they
+    // keep their bytes in Blob (blob_path) / the Anthropic Files API.
+    rawContent: text('raw_content'),
+
     // When the source itself was received (email date, WhatsApp
     // message timestamp, file mod time). Distinct from created_at
     // which is when it landed in Palamedes.
@@ -189,6 +195,13 @@ export const sources = pgTable(
     // selectively when models change.
     aiSummary: text('ai_summary'),
     aiSummaryModel: text('ai_summary_model'),
+
+    // Pass-1 structured fact extraction lifecycle (separate from the
+    // prose summary above; the facts themselves live in the `facts`
+    // table). `facts_extracted_at` null = not yet extracted or the last
+    // attempt failed; `facts_model` records the extractor model.
+    factsModel: text('facts_model'),
+    factsExtractedAt: timestamp('facts_extracted_at', { withTimezone: true }),
 
     // Storage references — populate only for file/scan kinds.
     // `blob_path` is the Vercel Blob URL (private); `anthropic_file_id`
@@ -221,6 +234,80 @@ export const sources = pgTable(
 
 export type Source = typeof sources.$inferSelect;
 export type NewSource = typeof sources.$inferInsert;
+
+// --- Facts (structured extraction / system of record) ---------------------
+
+// Normalized fact rows extracted from sources in Pass 1. The Facts Store
+// is the system of record: downstream generation (case summary, letters,
+// missing-evidence, timeline) reads FACTS — not raw documents or prose
+// summaries — so identical inputs yield consistent outputs.
+//
+// One row per atomic fact. `type` discriminates; `data` holds the typed
+// payload (validated by the Zod schema in src/lib/facts/schema.ts before
+// insert — invalid extractions are never persisted). `label` / `value` /
+// `fact_date` are denormalized out of `data` for cheap querying, dedup,
+// and timeline ordering without unpacking the jsonb. Every row keeps its
+// `source_id` provenance so any case fact traces back to a document.
+//
+// Idempotency: extraction is delete-then-insert per source, so
+// re-extracting a source replaces its facts rather than duplicating.
+
+export const FACT_TYPES = [
+  'party',
+  'date',
+  'address',
+  'reference',
+  'money',
+  'evidence',
+  'key_fact',
+  'action_item',
+  'document_type',
+] as const;
+export type FactType = (typeof FACT_TYPES)[number];
+
+export const facts = pgTable(
+  'facts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    caseId: uuid('case_id')
+      .notNull()
+      .references(() => cases.id, { onDelete: 'cascade' }),
+    sourceId: uuid('source_id')
+      .notNull()
+      .references(() => sources.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id').notNull(),
+
+    // Discriminator + typed payload (Zod-validated before insert).
+    type: text('type').notNull(),
+    data: jsonb('data').$type<Record<string, unknown>>().notNull(),
+
+    // Denormalized from `data` for querying without unpacking jsonb:
+    // a short human label, the canonical string value, and (date facts)
+    // an ISO or partial (`YYYY-MM`) date string for timeline ordering.
+    label: text('label'),
+    value: text('value'),
+    factDate: text('fact_date'),
+
+    // Extractor's self-reported confidence ('high' | 'medium' | 'low'),
+    // when available — lets generation prefer high-confidence facts.
+    confidence: text('confidence'),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('facts_case_id_idx').on(t.caseId),
+    index('facts_source_id_idx').on(t.sourceId),
+    index('facts_owner_id_idx').on(t.ownerId),
+    index('facts_case_type_idx').on(t.caseId, t.type),
+    check(
+      'facts_type_check',
+      sql`${t.type} IN ('party','date','address','reference','money','evidence','key_fact','action_item','document_type')`,
+    ),
+  ],
+);
+
+export type Fact = typeof facts.$inferSelect;
+export type NewFact = typeof facts.$inferInsert;
 
 // --- Generations ----------------------------------------------------------
 

@@ -5,6 +5,7 @@ import { cases, db, sources } from '@/db/db';
 import { anthropic } from '@/lib/anthropic';
 import { getCurrentUserId } from '@/lib/auth';
 import { uploadSourceFile } from '@/lib/blob';
+import { extractAndStoreFacts } from '@/lib/facts/extract';
 import { summarizeFile } from '@/lib/sources/summarize';
 
 // POST /api/sources/upload — accept a file as multipart form data,
@@ -164,6 +165,13 @@ export async function POST(req: NextRequest) {
       })
       .where(eq(sources.id, inserted.id))
       .returning();
+
+    // Pass 1 — extract structured facts from the same uploaded file
+    // (best-effort; never fails the source).
+    await extractAndStoreFacts(
+      { id: inserted.id, caseId, ownerId },
+      { mode: 'file', title, mimeType: file.type, anthropicFileId: anthropicFile.id },
+    );
 
     return NextResponse.json({ source: updated }, { status: 201 });
   } catch (err) {

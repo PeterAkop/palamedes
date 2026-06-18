@@ -252,3 +252,54 @@ export async function summarizeCase(input: SummarizeCaseInput): Promise<Summariz
 
   return { summary, model: response.model };
 }
+
+// --- Case roll-up from structured facts (Pass 2) -------------------------
+
+// Facts-driven case summary. This is the preferred path: it generates
+// from the case Facts Store (deterministic, deduped — see
+// src/lib/facts/case.ts) rather than from per-source prose, so identical
+// facts produce a consistent summary. Temperature 0 for stability.
+
+const CASE_FACTS_SYSTEM_PROMPT = `You are a senior UK immigration solicitor's case assistant. You are given the STRUCTURED FACTS extracted from every source on a single case — parties, key dates, references, addresses, financials, evidence, key facts, and outstanding action items. Synthesise them into one case-level summary the solicitor can read at a glance.
+
+Write 3–6 sentences (≤180 words) that:
+- State what the case is and where it stands overall.
+- Pull together the key facts: parties, dates, references, financial figures, deadlines, decisions.
+- Call out the outstanding actions, missing evidence, or risks the solicitor should address next.
+
+Use ONLY the facts provided — do not invent or infer anything beyond them. If the facts are sparse, say so plainly rather than padding. If facts conflict, note the conflict. Output only the summary prose — no headers, no bullets, no preamble like "Case summary:".`;
+
+export interface SummarizeCaseFromFactsInput {
+  caseTitle: string;
+  caseType: string;
+  // Deterministic facts sheet from formatCaseFactsForPrompt(...).
+  factsSheet: string;
+}
+
+export async function summarizeCaseFromFacts(
+  input: SummarizeCaseFromFactsInput,
+): Promise<SummarizeResult> {
+  const userText = `Case: ${input.caseTitle} (type: ${input.caseType})\n\nExtracted facts:\n\n${input.factsSheet}`;
+
+  const response = await anthropic.messages.create({
+    model: MODELS.haiku,
+    max_tokens: 512,
+    temperature: 0,
+    system: [
+      { type: 'text', text: CASE_FACTS_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+    ],
+    messages: [{ role: 'user', content: userText }],
+  });
+
+  const summary = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
+    .trim();
+
+  if (!summary) {
+    throw new Error('Haiku returned an empty case summary');
+  }
+
+  return { summary, model: response.model };
+}
