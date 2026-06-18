@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
-import { db, sources } from '@/db/db';
+import { db, type Source, sources } from '@/db/db';
 import { extractAndStoreFacts } from '@/lib/facts/extract';
-import { listMessageAttachments, type OutlookMessage } from '@/lib/outlook/graph';
+import { getMessageById, listMessageAttachments, type OutlookMessage } from '@/lib/outlook/graph';
 import { ingestEmailAttachment } from '@/lib/sources/attachments';
 import { summarizePastedMessage } from '@/lib/sources/summarize';
 
@@ -97,4 +97,39 @@ export async function createEmailSourceFromOutlook(args: {
   }
 
   return true;
+}
+
+// Backfill the full body of an existing Outlook `email` source that was
+// stored before raw_content existed, so re-analysis runs on the real
+// content rather than the 300-char preview. Re-fetches the message from
+// Outlook by its Graph id, writes raw_content + a fresh content_preview,
+// and returns the updated row. No-op (returns the row unchanged) when the
+// source isn't an Outlook email, has no Graph id, or already has content.
+// Best-effort: a Graph failure (e.g. the message was deleted) returns the
+// row as-is so the caller can still re-analyse from the preview.
+export async function backfillOutlookEmailContent(
+  row: Source,
+  accessToken: string,
+): Promise<Source> {
+  const meta = (row.metadata ?? {}) as Record<string, string | undefined>;
+  if (row.kind !== 'email' || meta.origin !== 'outlook' || !row.externalId || row.rawContent) {
+    return row;
+  }
+
+  try {
+    const m = await getMessageById(accessToken, row.externalId);
+    const [updated] = await db
+      .update(sources)
+      .set({
+        rawContent: m.bodyText,
+        contentPreview: m.bodyText.slice(0, 300),
+        updatedAt: new Date(),
+      })
+      .where(eq(sources.id, row.id))
+      .returning();
+    return updated ?? row;
+  } catch (err) {
+    console.warn('[email backfill failed]', row.id, err);
+    return row;
+  }
 }
