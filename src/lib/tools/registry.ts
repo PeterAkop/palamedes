@@ -1,7 +1,8 @@
 // In-code tool registry for the Tools tab. Each tool is an Opus-backed
 // document generator: a system prompt that sets the drafting role, plus
-// a buildUserPrompt that folds the case context (AI case summary +
-// selected source summaries) into the request.
+// a buildUserPrompt that folds the case context into the request — the
+// structured Facts Store (authoritative for concrete details) plus the
+// AI case summary and selected source summaries for narrative context.
 //
 // This lives in code (not the DB) so tools can evolve without a
 // migration; `generations.tool_id` references these ids. Two tools to
@@ -15,6 +16,10 @@ export interface ToolContext {
   clientName: string;
   // AI case summary (may be absent if never generated).
   caseSummary?: string;
+  // Deterministic structured facts (the Facts Store), rendered as a stable
+  // facts sheet — the authoritative source for concrete details (names,
+  // dates, figures, references). Absent if no facts extracted yet.
+  caseFacts?: string;
   // The source summaries the lawyer selected as context for this run.
   sourceSummaries: Array<{ title: string; kind: string; aiSummary: string }>;
   // Matter references for the letterhead. Lawyer-set; absent ones must
@@ -40,7 +45,7 @@ export interface ToolDef {
 // Shared closing guidance appended to every tool's system prompt — the
 // non-negotiables for a solicitor-facing draft.
 const SHARED_GUARDRAILS = `
-You are drafting for a qualified UK immigration solicitor who will review, edit, and sign the document — you are not giving legal advice to a client and nothing you produce is sent without the solicitor's approval. Use only facts present in the provided case context; never invent names, dates, figures, or references. For the firm's own letterhead and signatory, use the details in the "Firm details" block exactly as given; only fall back to a clearly-marked square-bracket placeholder (e.g. [FIRM ADDRESS], [DATE OF MARRIAGE]) for a detail that is genuinely missing — never guess. For the matter references, use the "Our reference" and "Your reference" values from the "Matter references" block exactly if given; if a reference is not provided, write a clearly-marked placeholder ([OUR REFERENCE] / [YOUR REFERENCE]) — never fabricate a reference number. Write in British English, in a professional letter register. Output only the letter text — no commentary, no explanation of your choices.`;
+You are drafting for a qualified UK immigration solicitor who will review, edit, and sign the document — you are not giving legal advice to a client and nothing you produce is sent without the solicitor's approval. Use only facts present in the provided case context; never invent names, dates, figures, or references. When the "Verified case facts" block gives a specific value (a name, date, figure, address, or reference), treat it as the authoritative source for that detail and prefer it over anything implied by the narrative summaries. For the firm's own letterhead and signatory, use the details in the "Firm details" block exactly as given; only fall back to a clearly-marked square-bracket placeholder (e.g. [FIRM ADDRESS], [DATE OF MARRIAGE]) for a detail that is genuinely missing — never guess. For the matter references, use the "Our reference" and "Your reference" values from the "Matter references" block exactly if given; if a reference is not provided, write a clearly-marked placeholder ([OUR REFERENCE] / [YOUR REFERENCE]) — never fabricate a reference number. Write in British English, in a professional letter register. Output only the letter text — no commentary, no explanation of your choices.`;
 
 // Render the firm letterhead/signatory block. Only the fields the lawyer
 // has filled in appear; missing ones are simply absent (the model is
@@ -90,9 +95,16 @@ function renderContext(ctx: ToolContext): string {
       ? `\nMatter references:\n${refLines.join('\n')}`
       : '\nMatter references: (none set — use [OUR REFERENCE] / [YOUR REFERENCE] placeholders, do not invent)',
   );
+  // Structured facts first — the authoritative grounding for concrete
+  // details. The narrative summaries below are supporting context.
+  parts.push(
+    ctx.caseFacts
+      ? `\nVerified case facts (structured extraction — authoritative for names, dates, figures, and references):\n${ctx.caseFacts}`
+      : '\nVerified case facts: (none extracted yet)',
+  );
   parts.push(
     ctx.caseSummary
-      ? `\nCase summary:\n${ctx.caseSummary}`
+      ? `\nCase summary (narrative context):\n${ctx.caseSummary}`
       : '\nCase summary: (none generated yet)',
   );
   if (ctx.sourceSummaries.length > 0) {
