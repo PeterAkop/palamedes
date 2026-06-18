@@ -3,6 +3,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { cases, db, sources } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
 import { regenerateCaseSummary } from '@/lib/cases/summary';
+import { getValidAccessToken } from '@/lib/outlook/tokens';
+import { backfillOutlookEmailContent } from '@/lib/sources/fromEmail';
 import { reprocessSource } from '@/lib/sources/process';
 
 // POST /api/cases/[id]/reanalyze — re-run analysis (summary + Pass-1 fact
@@ -33,10 +35,26 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     .from(sources)
     .where(and(eq(sources.caseId, caseRow.id), eq(sources.ownerId, ownerId)));
 
+  // Outlook token for backfilling email bodies that were stored before
+  // raw_content existed (best-effort — null if the mailbox isn't
+  // connected, in which case we just re-analyse from the preview).
+  let outlookToken: string | null = null;
+  try {
+    outlookToken = await getValidAccessToken(ownerId, 'outlook');
+  } catch {
+    outlookToken = null;
+  }
+
   let ready = 0;
   let failed = 0;
+  let backfilled = 0;
   for (const row of rows) {
-    const updated = await reprocessSource(row);
+    let current = row;
+    if (outlookToken) {
+      current = await backfillOutlookEmailContent(row, outlookToken);
+      if (current.rawContent && !row.rawContent) backfilled += 1;
+    }
+    const updated = await reprocessSource(current);
     if (updated.status === 'ready') ready += 1;
     else if (updated.status === 'failed') failed += 1;
   }
@@ -55,5 +73,5 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     console.error('[reanalyze] case summary regeneration failed', caseRow.id, err);
   }
 
-  return NextResponse.json({ sources: rows.length, ready, failed, summaryRegenerated });
+  return NextResponse.json({ sources: rows.length, ready, failed, backfilled, summaryRegenerated });
 }

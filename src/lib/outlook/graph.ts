@@ -226,6 +226,18 @@ export async function listMessagesForCase(
   });
 }
 
+// One full message by id — used to backfill an email source's full body
+// (re-fetch the original from Outlook for sources stored before we
+// persisted raw_content). Throws if the message no longer exists.
+export async function getMessageById(accessToken: string, id: string): Promise<OutlookMessage> {
+  const select = 'id,conversationId,subject,from,receivedDateTime,bodyPreview,body,hasAttachments';
+  const m = await graphGet<GraphMessage>(
+    accessToken,
+    `/me/messages/${encodeURIComponent(id)}?$select=${select}`,
+  );
+  return toOutlookMessage(m);
+}
+
 // File attachments on a message. Only `fileAttachment`s with inline
 // base64 `contentBytes` are returned (the shape we can store) — inline
 // signature images are included here but the caller filters them out.
