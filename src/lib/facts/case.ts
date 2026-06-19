@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import type { CaseFactGroup } from '@/data/cases';
+import type { CaseFactGroup, CaseFactView } from '@/data/cases';
 import { db, type Fact, type FactType, facts, sources } from '@/db/db';
 
 // The case Facts Store — the read side. Aggregates the normalized fact
@@ -122,6 +122,46 @@ export async function getCaseFactsView(caseId: string, ownerId: string): Promise
       sourceTitle: titleById.get(f.sourceId) ?? 'Unknown source',
     })),
   }));
+}
+
+// Each source's own facts, keyed by source id — for the per-source view
+// on the Sources tab. Unlike getCaseFactsView this does NOT dedupe across
+// sources (every source shows the facts extracted from it), but still
+// sorts by category/date for a stable order.
+export async function getCaseFactsBySource(
+  caseId: string,
+  ownerId: string,
+): Promise<Record<string, CaseFactView[]>> {
+  const rows = await db
+    .select()
+    .from(facts)
+    .where(and(eq(facts.caseId, caseId), eq(facts.ownerId, ownerId)));
+  if (rows.length === 0) return {};
+
+  const sourceIds = [...new Set(rows.map((r) => r.sourceId))];
+  const srcRows = await db
+    .select({ id: sources.id, title: sources.title })
+    .from(sources)
+    .where(inArray(sources.id, sourceIds));
+  const titleById = new Map(srcRows.map((s) => [s.id, s.title]));
+
+  const bySource: Record<string, CaseFactView[]> = {};
+  for (const f of sortFacts(rows)) {
+    const view: CaseFactView = {
+      id: f.id,
+      type: f.type as FactType,
+      label: f.label,
+      value: f.value,
+      factDate: f.factDate,
+      confidence: f.confidence,
+      sourceId: f.sourceId,
+      sourceTitle: titleById.get(f.sourceId) ?? 'Unknown source',
+    };
+    const list = bySource[f.sourceId];
+    if (list) list.push(view);
+    else bySource[f.sourceId] = [view];
+  }
+  return bySource;
 }
 
 // Render the facts as a stable, plain-text "facts sheet" for a Pass-2

@@ -22,6 +22,7 @@ import {
   CASE_TYPE_LABEL,
   type Case,
   type CaseFactGroup,
+  type CaseFactView,
   type Client,
   type SendConfig,
   SOURCE_KIND_LABEL,
@@ -47,9 +48,11 @@ interface Props {
   client: Client | undefined;
   send: SendConfig;
   facts: CaseFactGroup[];
+  // Each source's own extracted facts, keyed by source id.
+  factsBySource: Record<string, CaseFactView[]>;
 }
 
-export default function CaseTabs({ caseData, client, send, facts }: Props) {
+export default function CaseTabs({ caseData, client, send, facts, factsBySource }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
@@ -98,7 +101,11 @@ export default function CaseTabs({ caseData, client, send, facts }: Props) {
               <div role="tabpanel" className="tab-content bg-base-100 border-base-300 p-4 sm:p-6">
                 {t.id === 'overview' && <OverviewTab caseData={caseData} client={client} />}
                 {t.id === 'sources' && (
-                  <SourcesTab caseId={caseData.id} sources={caseData.sources} />
+                  <SourcesTab
+                    caseId={caseData.id}
+                    sources={caseData.sources}
+                    factsBySource={factsBySource}
+                  />
                 )}
                 {t.id === 'facts' && <FactsTab groups={facts} />}
                 {t.id === 'tools' && <ToolsTab caseData={caseData} send={send} />}
@@ -253,7 +260,15 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
 
 const SOURCES_PAGE_SIZE = 10;
 
-function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) {
+function SourcesTab({
+  caseId,
+  sources,
+  factsBySource,
+}: {
+  caseId: string;
+  sources: Source[];
+  factsBySource: Record<string, CaseFactView[]>;
+}) {
   const [kind, setKind] = useState<SourceKind | 'all'>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -385,7 +400,7 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
             <>
               <div className="space-y-2">
                 {pageItems.map((src) => (
-                  <SourceRow key={src.id} source={src} />
+                  <SourceRow key={src.id} source={src} facts={factsBySource[src.id] ?? []} />
                 ))}
               </div>
 
@@ -420,7 +435,20 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
   );
 }
 
-function SourceRow({ source }: { source: Source }) {
+// Short tags for the per-source fact badges (compact vs the Facts tab labels).
+const FACT_TYPE_SHORT: Record<string, string> = {
+  party: 'party',
+  date: 'date',
+  address: 'address',
+  reference: 'ref',
+  money: 'money',
+  evidence: 'evidence',
+  key_fact: 'fact',
+  action_item: 'action',
+  document_type: 'doc',
+};
+
+function SourceRow({ source, facts }: { source: Source; facts: CaseFactView[] }) {
   const Icon = SOURCE_KIND_ICON[source.kind];
   return (
     <details className="collapse collapse-arrow bg-base-100 border border-base-300">
@@ -486,6 +514,30 @@ function SourceRow({ source }: { source: Source }) {
               : 'No AI summary for this source.'}
           </p>
         ) : null}
+
+        {/* Structured facts extracted from this source (Pass 1). */}
+        {facts.length > 0 && (
+          <div className="rounded-md border border-base-200 bg-base-200/40 p-3">
+            <p className="text-xs uppercase tracking-wide text-base-content/50 mb-1.5 flex items-center gap-1">
+              <ClipboardList className="h-3 w-3 text-primary" /> Extracted facts ({facts.length})
+            </p>
+            <ul className="space-y-1">
+              {facts.map((f) => (
+                <li key={f.id} className="flex items-baseline gap-1.5">
+                  <span className="badge badge-ghost badge-xs shrink-0">
+                    {FACT_TYPE_SHORT[f.type] ?? f.type}
+                  </span>
+                  {f.type === 'date' && f.factDate && (
+                    <span className="font-mono text-xs text-base-content/60 shrink-0">
+                      {f.factDate}
+                    </span>
+                  )}
+                  <span className="text-base-content/80 break-words">{f.value}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </details>
   );
