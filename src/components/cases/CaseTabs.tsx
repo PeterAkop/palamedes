@@ -481,6 +481,14 @@ function factDisplayValue(f: CaseFactView): string {
   return v.charAt(0).toUpperCase() + v.slice(1);
 }
 
+// Display a fact's key/label (party role, reference kind, money label, …)
+// with a leading capital and underscores as spaces: "home_office" ->
+// "Home office", "applicant" -> "Applicant".
+function formatFactLabel(label: string): string {
+  const t = label.replace(/_/g, ' ');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 // Action-item priority (stored in CaseFactView.label) → badge colour +
 // sort order, so the lawyer sees the high-priority follow-ups first.
 const PRIORITY_BADGE: Record<string, string> = {
@@ -829,7 +837,11 @@ function FactsTab({
                           f.type === 'reference' ||
                           f.type === 'address' ||
                           f.type === 'money') &&
-                          f.label && <span className="text-base-content/50 mr-1">{f.label}:</span>}
+                          f.label && (
+                            <span className="text-base-content/50 mr-1">
+                              {formatFactLabel(f.label)}:
+                            </span>
+                          )}
                         <span className="text-base-content/90">{factDisplayValue(f)}</span>
                       </span>
                       <span
