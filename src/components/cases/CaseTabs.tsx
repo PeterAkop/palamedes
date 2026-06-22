@@ -905,34 +905,140 @@ function factTier(f: CaseFactView): FactTier {
   return base;
 }
 
-// One fact row — shared across all three tiers so they render identically.
+// A fact's inline content (date prefix / priority badge / "Label:" / value),
+// without provenance — shared by the row view and the by-source bullet view.
+function FactContent({ f }: { f: CaseFactView }) {
+  return (
+    <span>
+      {f.type === 'date' && f.factDate && (
+        <span className="font-mono text-base-content/60 mr-2">{f.factDate}</span>
+      )}
+      {f.type === 'action_item' && f.label && (
+        <span
+          className={`badge badge-xs mr-1.5 align-middle ${PRIORITY_BADGE[f.label] ?? 'badge-ghost'}`}
+        >
+          {f.label}
+        </span>
+      )}
+      {(f.type === 'party' ||
+        f.type === 'reference' ||
+        f.type === 'address' ||
+        f.type === 'money') &&
+        f.label && <span className="text-base-content/50 mr-1">{formatFactLabel(f.label)}:</span>}
+      <span className="text-base-content/90">{factDisplayValue(f)}</span>
+    </span>
+  );
+}
+
+// One fact row with its own provenance line — used by Supporting / Raw,
+// where facts are grouped by type rather than by source.
 function FactRow({ f, source }: { f: CaseFactView; source?: Source }) {
   return (
     <li className="py-1.5 text-sm">
       <div className="min-w-0">
-        <span>
-          {f.type === 'date' && f.factDate && (
-            <span className="font-mono text-base-content/60 mr-2">{f.factDate}</span>
-          )}
-          {f.type === 'action_item' && f.label && (
-            <span
-              className={`badge badge-xs mr-1.5 align-middle ${PRIORITY_BADGE[f.label] ?? 'badge-ghost'}`}
-            >
-              {f.label}
-            </span>
-          )}
-          {(f.type === 'party' ||
-            f.type === 'reference' ||
-            f.type === 'address' ||
-            f.type === 'money') &&
-            f.label && (
-              <span className="text-base-content/50 mr-1">{formatFactLabel(f.label)}:</span>
-            )}
-          <span className="text-base-content/90">{factDisplayValue(f)}</span>
-        </span>
+        <FactContent f={f} />
         <FactProvenance fact={f} source={source} />
       </div>
     </li>
+  );
+}
+
+// Clickable source title used as a heading when facts are grouped by source
+// (Critical tier). Mirrors FactProvenance's link behaviour: opens the file
+// for file/scan sources, else jumps to the source in the Sources tab; merged
+// facts ("N sources") stay plain text.
+function SourceHeading({
+  title,
+  sourceId,
+  merged,
+  source,
+}: {
+  title: string;
+  sourceId: string;
+  merged: boolean;
+  source?: Source;
+}) {
+  const cls = 'text-xs font-medium uppercase tracking-wide text-base-content/55 truncate';
+  if (merged || !source) {
+    return (
+      <span className={cls} title={title}>
+        {title}
+      </span>
+    );
+  }
+  if (source.hasFile) {
+    return (
+      <a
+        href={`/api/sources/${sourceId}`}
+        target="_blank"
+        rel="noreferrer"
+        className={`${cls} link link-hover hover:text-base-content/80`}
+        title={`Open ${title}`}
+      >
+        {title} ↗
+      </a>
+    );
+  }
+  return (
+    <Link
+      href={`?tab=sources#source-${sourceId}`}
+      scroll
+      className={`${cls} link link-hover hover:text-base-content/80`}
+      title={`Go to ${title}`}
+    >
+      {title}
+    </Link>
+  );
+}
+
+// Render a tier's facts grouped BY SOURCE: one heading per document with its
+// related facts as bullets underneath — so the source is named once instead
+// of repeated on every row. Used for Critical facts.
+function FactsBySource({
+  groups,
+  sourceById,
+}: {
+  groups: CaseFactGroup[];
+  sourceById: Map<string, Source>;
+}) {
+  // Flatten the tier's type-subgroups, then regroup by source (first-seen
+  // order). Merged facts ("N sources") bucket by their title.
+  const bySource = new Map<
+    string,
+    { title: string; sourceId: string; merged: boolean; facts: CaseFactView[] }
+  >();
+  for (const g of groups) {
+    for (const f of g.facts) {
+      const key = f.merged ? `merged:${f.sourceTitle}` : f.sourceId;
+      let entry = bySource.get(key);
+      if (!entry) {
+        entry = { title: f.sourceTitle, sourceId: f.sourceId, merged: !!f.merged, facts: [] };
+        bySource.set(key, entry);
+      }
+      entry.facts.push(f);
+    }
+  }
+  return (
+    <div className="space-y-3">
+      {[...bySource.values()].map((entry) => (
+        <div key={entry.merged ? `m:${entry.title}` : entry.sourceId}>
+          <SourceHeading
+            title={entry.title}
+            sourceId={entry.sourceId}
+            merged={entry.merged}
+            source={sourceById.get(entry.sourceId)}
+          />
+          <ul className="mt-1 space-y-1">
+            {entry.facts.map((f) => (
+              <li key={f.id} className="flex gap-2 text-sm">
+                <span className="text-primary/60 select-none leading-6">•</span>
+                <FactContent f={f} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1040,11 +1146,7 @@ function FactsTab({
             <p className="text-xs font-semibold uppercase tracking-wide text-primary">
               Critical facts
             </p>
-            <FactGroupBlocks
-              groups={critical}
-              sourceById={sourceById}
-              labelClass="text-primary/70"
-            />
+            <FactsBySource groups={critical} sourceById={sourceById} />
           </div>
         </div>
       )}
