@@ -134,6 +134,7 @@ export default function CaseTabs({
                     evidence={evidence}
                     caseType={caseData.caseType}
                     tasks={tasks}
+                    deadline={caseData.deadline}
                     sources={caseData.sources}
                   />
                 )}
@@ -893,11 +894,45 @@ function TaskRow({
   );
 }
 
+// Whole days from today (local) to an ISO date (YYYY-MM-DD): positive =
+// future, 0 = today, negative = overdue; null if absent/unparseable.
+function daysUntil(dateStr?: string): number | null {
+  if (!dateStr) return null;
+  const due = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(due.getTime())) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((due.getTime() - today.getTime()) / 86_400_000);
+}
+
+// Deadline urgency → label + tone. Red within a week or overdue, amber
+// within a fortnight, muted when no deadline is set.
+function deadlineSummary(days: number | null): { text: string; tone: string } {
+  if (days === null) return { text: 'No deadline set', tone: 'text-base-content/40' };
+  if (days < 0) {
+    const n = Math.abs(days);
+    return { text: `Overdue by ${n} day${n === 1 ? '' : 's'}`, tone: 'text-error font-medium' };
+  }
+  if (days === 0) return { text: 'Due today', tone: 'text-error font-medium' };
+  const text = `Due in ${days} day${days === 1 ? '' : 's'}`;
+  if (days <= 7) return { text, tone: 'text-error font-medium' };
+  if (days <= 14) return { text, tone: 'text-warning' };
+  return { text, tone: 'text-base-content/60' };
+}
+
 // Action plan — the case's task list. Seeded from the consolidated action
 // items but now stateful: check items off (persisted), dismiss noise, add
-// your own. Optimistic updates keep it snappy; the server is the source of
-// truth (router.refresh re-pulls after each change).
-function ActionPlanCard({ caseId, tasks }: { caseId: string; tasks: CaseTaskView[] }) {
+// your own. A deadline-aware summary line surfaces what blocks submission
+// and how long is left.
+function ActionPlanCard({
+  caseId,
+  tasks,
+  deadline,
+}: {
+  caseId: string;
+  tasks: CaseTaskView[];
+  deadline?: string;
+}) {
   const router = useRouter();
   const [items, setItems] = useState<CaseTaskView[]>(tasks);
   // Re-sync when the server sends a fresh list (after refresh / reanalyze).
@@ -951,6 +986,12 @@ function ActionPlanCard({ caseId, tasks }: { caseId: string; tasks: CaseTaskView
     }
   }
 
+  // High-priority open tasks are the ones the consolidation flagged as
+  // blocking the application — surface them against the case deadline.
+  const blocking = open.filter((t) => t.priority === 'high').length;
+  const summary = deadlineSummary(daysUntil(deadline));
+  const showSummary = open.length > 0 && (deadline != null || blocking > 0);
+
   return (
     <div className="card bg-base-100 border border-base-300">
       <div className="card-body p-4">
@@ -969,6 +1010,21 @@ function ActionPlanCard({ caseId, tasks }: { caseId: string; tasks: CaseTaskView
             Add task
           </button>
         </div>
+
+        {showSummary && (
+          <div className="flex items-center gap-2 text-xs -mt-1">
+            {blocking > 0 && (
+              <span className="text-error font-medium">{blocking} blocking submission</span>
+            )}
+            {blocking > 0 && deadline != null && <span className="text-base-content/30">·</span>}
+            {deadline != null && (
+              <span className={`flex items-center gap-1 ${summary.tone}`}>
+                <Calendar className="h-3 w-3" />
+                {summary.text}
+              </span>
+            )}
+          </div>
+        )}
 
         {adding && (
           <form onSubmit={addTask} className="flex items-center gap-2">
@@ -1293,6 +1349,7 @@ function FactsTab({
   evidence,
   caseType,
   tasks,
+  deadline,
   sources,
 }: {
   caseId: string;
@@ -1300,6 +1357,7 @@ function FactsTab({
   evidence: EvidenceCheck[];
   caseType: CaseType;
   tasks: CaseTaskView[];
+  deadline?: string;
   sources: Source[];
 }) {
   const total = groups.reduce((n, g) => n + g.facts.length, 0);
@@ -1322,7 +1380,7 @@ function FactsTab({
   return (
     <div className="flex flex-col gap-3">
       <EvidenceChecklistCard evidence={evidence} caseType={caseType} />
-      <ActionPlanCard caseId={caseId} tasks={tasks} />
+      <ActionPlanCard caseId={caseId} tasks={tasks} deadline={deadline} />
 
       <div className="flex items-center justify-between">
         <h2 className="card-title text-base gap-2">
