@@ -15,7 +15,11 @@ export default auth((req) => {
   const { nextUrl } = req;
   const isLoggedIn = Boolean(req.auth);
   const isPublic =
-    nextUrl.pathname.startsWith('/sign-in') || nextUrl.pathname.startsWith('/api/auth');
+    nextUrl.pathname.startsWith('/sign-in') ||
+    nextUrl.pathname.startsWith('/api/auth') ||
+    // Client document upload via a tokenised link — no account needed.
+    nextUrl.pathname.startsWith('/upload/') ||
+    nextUrl.pathname.startsWith('/api/upload/');
 
   if (!isLoggedIn && !isPublic) {
     return NextResponse.redirect(new URL('/sign-in', nextUrl.origin));
