@@ -16,6 +16,7 @@ import {
   Sparkles,
   Wrench,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Fragment, useMemo, useState } from 'react';
 import {
@@ -128,6 +129,7 @@ export default function CaseTabs({
                     evidence={evidence}
                     caseType={caseData.caseType}
                     actionPlan={actionPlan}
+                    sources={caseData.sources}
                   />
                 )}
                 {t.id === 'tools' && <ToolsTab caseData={caseData} send={send} />}
@@ -506,7 +508,10 @@ function sortByPriority(facts: CaseFactView[]): CaseFactView[] {
 function SourceRow({ source, facts }: { source: Source; facts: CaseFactView[] }) {
   const Icon = SOURCE_KIND_ICON[source.kind];
   return (
-    <details className="collapse collapse-arrow bg-base-100 border border-base-300">
+    <details
+      id={`source-${source.id}`}
+      className="collapse collapse-arrow bg-base-100 border border-base-300 scroll-mt-20"
+    >
       <summary className="collapse-title !py-3 min-h-0 pr-10 cursor-pointer">
         <div className="flex items-start gap-3">
           <Icon className="h-4 w-4 shrink-0 text-base-content/50 mt-1" />
@@ -776,22 +781,64 @@ function ActionPlanCard({ items }: { items: ActionPlanItem[] }) {
   );
 }
 
+// Provenance line under a fact: links to the source it came from — opens
+// the document for file/scan sources, otherwise jumps to that source in
+// the Sources tab. Merged facts ("N sources") stay plain text.
+function FactProvenance({ fact, source }: { fact: CaseFactView; source?: Source }) {
+  const cls = 'block text-xs text-base-content/40 truncate';
+  if (fact.merged || !source) {
+    return (
+      <span className={cls} title={fact.sourceTitle}>
+        from {fact.sourceTitle}
+      </span>
+    );
+  }
+  if (source.hasFile) {
+    return (
+      <a
+        href={`/api/sources/${fact.sourceId}`}
+        target="_blank"
+        rel="noreferrer"
+        className={`${cls} link link-hover hover:text-base-content/70`}
+        title={`Open ${fact.sourceTitle}`}
+      >
+        from {fact.sourceTitle} ↗
+      </a>
+    );
+  }
+  return (
+    <Link
+      href={`?tab=sources#source-${fact.sourceId}`}
+      scroll
+      className={`${cls} link link-hover hover:text-base-content/70`}
+      title={`Go to ${fact.sourceTitle}`}
+    >
+      from {fact.sourceTitle}
+    </Link>
+  );
+}
+
 function FactsTab({
   groups,
   evidence,
   caseType,
   actionPlan,
+  sources,
 }: {
   groups: CaseFactGroup[];
   evidence: EvidenceCheck[];
   caseType: CaseType;
   actionPlan: ActionPlanItem[];
+  sources: Source[];
 }) {
   const total = groups.reduce((n, g) => n + g.facts.length, 0);
-  // When a consolidated plan exists, show it instead of the raw, duplicated
-  // per-source action_item group.
   const hasPlan = actionPlan.length > 0;
-  const displayGroups = hasPlan ? groups.filter((g) => g.type !== 'action_item') : groups;
+  const sourceById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
+  // Drop the standalone Evidence group (the checklist above covers it), and
+  // the raw per-source action_item group when a consolidated plan exists.
+  const displayGroups = groups.filter(
+    (g) => g.type !== 'evidence' && !(g.type === 'action_item' && hasPlan),
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -844,12 +891,7 @@ function FactsTab({
                           )}
                         <span className="text-base-content/90">{factDisplayValue(f)}</span>
                       </span>
-                      <span
-                        className="block text-xs text-base-content/40 truncate"
-                        title={f.sourceTitle}
-                      >
-                        from {f.sourceTitle}
-                      </span>
+                      <FactProvenance fact={f} source={sourceById.get(f.sourceId)} />
                     </div>
                     {f.confidence && f.confidence !== 'high' && (
                       <span className="badge badge-ghost badge-xs shrink-0 mt-0.5">

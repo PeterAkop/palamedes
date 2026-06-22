@@ -203,6 +203,7 @@ function collapseSimilarFacts(views: CaseFactView[]): CaseFactView[] {
     ...c.rep,
     label: c.priority ?? c.rep.label,
     // Note when the same item came from several sources.
+    merged: c.sources.size > 1,
     sourceTitle: c.sources.size > 1 ? `${c.sources.size} sources` : c.rep.sourceTitle,
   }));
 }

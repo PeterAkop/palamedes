@@ -175,6 +175,9 @@ export interface CaseFactView {
   confidence: string | null;
   sourceId: string;
   sourceTitle: string;
+  // True when this row was merged across several sources — provenance is
+  // then "N sources" and shouldn't link to a single document.
+  merged?: boolean;
 }
 
 // Facts grouped by category for the Facts tab (e.g. "Key dates").
