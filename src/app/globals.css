@@ -29,4 +29,13 @@
     font-size: 0.875rem;
     line-height: 1.25rem;
   }
+  /* Unfilled [PLACEHOLDER] tokens in a draft — highlighted so the lawyer
+     can spot what still needs completing before sending. */
+  .draft-placeholder {
+    background-color: #fde68a; /* amber-200 */
+    color: #78350f; /* amber-900 */
+    padding: 0 0.2rem;
+    border-radius: 0.2rem;
+    font-weight: 600;
+  }
 }

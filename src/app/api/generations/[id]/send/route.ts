@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { cases, db, generationMessages, generations } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
 import { sendToClientEnabled } from '@/lib/flags';
+import { renderMarkdownToHtml } from '@/lib/markdown';
 import { sendMail } from '@/lib/outlook/graph';
 import { getConnection, getValidAccessToken } from '@/lib/outlook/tokens';
 import { getTool } from '@/lib/tools/registry';
@@ -102,7 +103,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // was added) surfaces as insufficient_scope → reconnect prompt.
   try {
     const accessToken = await getValidAccessToken(ownerId, 'outlook');
-    await sendMail(accessToken, { to: recipient, subject, bodyText: latest.content });
+    // Send the draft as formatted HTML so headings/bold/lists render in the
+    // recipient's inbox rather than raw markdown.
+    await sendMail(accessToken, {
+      to: recipient,
+      subject,
+      bodyHtml: renderMarkdownToHtml(latest.content),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'send_failed';
     console.error('[send] sendMail failed:', { recipient, subject, message, err });

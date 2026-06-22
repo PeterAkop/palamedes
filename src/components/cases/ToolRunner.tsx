@@ -1,9 +1,10 @@
 'use client';
 
 import { CheckCircle2, Eye, Mail, Pencil, Plus, Send, Sparkles } from 'lucide-react';
-import { type FormEvent, useRef, useState } from 'react';
+import { type FormEvent, useMemo, useRef, useState } from 'react';
 import { revalidateCases } from '@/app/cases/actions';
 import type { Generation, SendConfig, Source } from '@/data/cases';
+import { findPlaceholders, highlightPlaceholders, renderMarkdownToHtml } from '@/lib/markdown';
 
 // Per-tool runner modal. Generates an Opus draft (streamed), then lets
 // the lawyer refine it by chat or edit it by hand. The draft is a
@@ -285,6 +286,15 @@ export default function ToolRunner({
     if (!generationId) return;
     // Re-send guard — the draft already went out once.
     if (sent && !window.confirm('This letter was already sent. Send it again?')) return;
+    // Placeholder guard — warn before sending a draft with unfilled
+    // [PLACEHOLDER] tokens still in it.
+    if (outstandingPlaceholders.length > 0) {
+      const n = outstandingPlaceholders.length;
+      const ok = window.confirm(
+        `This draft still has ${n} unfilled placeholder${n === 1 ? '' : 's'}:\n\n${outstandingPlaceholders.join('\n')}\n\nSend anyway?`,
+      );
+      if (!ok) return;
+    }
     setError(null);
     setIsSending(true);
     try {
@@ -328,6 +338,10 @@ export default function ToolRunner({
   // the committed draft (dimmed while we wait for the first token).
   const bodyText = isStreaming && streaming ? streaming : draft;
   const waiting = isStreaming && !streaming;
+  // Render the committed draft (markdown → HTML) with placeholders
+  // highlighted; outstanding placeholders also gate the send.
+  const draftHtml = useMemo(() => highlightPlaceholders(renderMarkdownToHtml(draft)), [draft]);
+  const outstandingPlaceholders = useMemo(() => findPlaceholders(draft), [draft]);
 
   return (
     <>
@@ -473,9 +487,16 @@ export default function ToolRunner({
                 </>
               ) : (
                 <div className="rounded-md border border-base-300 p-4 max-h-[55vh] overflow-y-auto prose prose-sm max-w-none">
-                  <p className={`whitespace-pre-wrap ${waiting ? 'opacity-40' : ''}`}>
-                    {bodyText || <span className="loading loading-dots loading-sm" />}
-                  </p>
+                  {isStreaming ? (
+                    <p className={`whitespace-pre-wrap ${waiting ? 'opacity-40' : ''}`}>
+                      {bodyText || <span className="loading loading-dots loading-sm" />}
+                    </p>
+                  ) : draft ? (
+                    // biome-ignore lint/security/noDangerouslySetInnerHtml: our own markdown render, HTML-escaped in renderMarkdownToHtml
+                    <div dangerouslySetInnerHTML={{ __html: draftHtml }} />
+                  ) : (
+                    <span className="loading loading-dots loading-sm" />
+                  )}
                 </div>
               )}
 
@@ -498,6 +519,17 @@ export default function ToolRunner({
                     <Mail className="h-3 w-3" />
                     Send letter
                   </p>
+
+                  {outstandingPlaceholders.length > 0 && (
+                    <div className="alert alert-warning text-xs py-2">
+                      <span>
+                        {outstandingPlaceholders.length} unfilled placeholder
+                        {outstandingPlaceholders.length === 1 ? '' : 's'} still in the draft (
+                        {outstandingPlaceholders.join(', ')}). Edit the draft to complete them
+                        before sending.
+                      </span>
+                    </div>
+                  )}
 
                   {!send.outlookConnected ? (
                     <p className="text-sm text-base-content/60">
