@@ -7,6 +7,11 @@ what each one produces.
 > **Models** — `claude-haiku-4-5` (Haiku) does the per-source and case-level
 > analysis; `claude-opus-4-8` (Opus) drafts the Tools documents. The Facts
 > tiering and the Evidence checklist are **deterministic** (no AI).
+>
+> **Rendered images** (open directly — no Mermaid viewer needed) live in
+> [`diagrams/`](./diagrams): `02-dataflow.png` is the main one, plus
+> `01-legend`, `03-tabs`, `04-tools-sequence` (PNG + SVG each). Regenerate
+> with `npx @mermaid-js/mermaid-cli -i TABS.md -o diagrams/TABS.png -b white -s 2`.
 
 ## Legend
 
