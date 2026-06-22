@@ -22,13 +22,30 @@ function isFieldLine(line: string): boolean {
   return /^[^[\n]*:\s*\[[A-Z][A-Z0-9 ./_-]*\]\s*$/.test(line.trim());
 }
 
-function renderBold(text: string, keyBase: string): ReactNode[] {
+// Inline text → nodes: **bold** and auto-linked bare URLs.
+function renderInline(text: string, keyBase: string): ReactNode[] {
   const out: ReactNode[] = [];
   let n = 0;
-  for (const p of text.split(/(\*\*[^*]+\*\*)/g)) {
-    const m = p.match(/^\*\*([^*]+)\*\*$/);
-    if (m) out.push(<strong key={`${keyBase}-${n++}`}>{m[1]}</strong>);
-    else if (p) out.push(<Fragment key={`${keyBase}-${n++}`}>{p}</Fragment>);
+  for (const p of text.split(/(\*\*[^*]+\*\*|https?:\/\/[^\s]+)/g)) {
+    if (!p) continue;
+    const bold = p.match(/^\*\*([^*]+)\*\*$/);
+    if (bold) {
+      out.push(<strong key={`${keyBase}-${n++}`}>{bold[1]}</strong>);
+    } else if (/^https?:\/\//.test(p)) {
+      out.push(
+        <a
+          key={`${keyBase}-${n++}`}
+          href={p}
+          target="_blank"
+          rel="noreferrer"
+          className="link link-primary break-all"
+        >
+          {p}
+        </a>,
+      );
+    } else {
+      out.push(<Fragment key={`${keyBase}-${n++}`}>{p}</Fragment>);
+    }
   }
   return out;
 }
@@ -96,7 +113,7 @@ export default function DraftView({ content, interactive, onChange }: Props) {
     let k = 0;
     for (const m of line.matchAll(PLACEHOLDER_RE)) {
       const offset = m.index ?? 0;
-      if (offset > last) nodes.push(...renderBold(line.slice(last, offset), `l${idx}-${k++}`));
+      if (offset > last) nodes.push(...renderInline(line.slice(last, offset), `l${idx}-${k++}`));
       const token = m[0];
       nodes.push(
         <PlaceholderChip
@@ -109,9 +126,28 @@ export default function DraftView({ content, interactive, onChange }: Props) {
       );
       last = offset + token.length;
     }
-    if (last < line.length) nodes.push(...renderBold(line.slice(last), `l${idx}-${k++}`));
+    if (last < line.length) nodes.push(...renderInline(line.slice(last), `l${idx}-${k++}`));
     return nodes;
   }
+
+  // A list item with a hover × to remove it — used for the missing-materials
+  // list (and any list) so the lawyer can prune items.
+  const listItem = (idx: number, text: string) => (
+    <li key={`li${idx}`} className="group/li flex items-start gap-1">
+      <span className="flex-1">{renderLine(text, idx)}</span>
+      {interactive && (
+        <button
+          type="button"
+          onClick={() => removeLine(idx)}
+          title="Remove this item"
+          aria-label="Remove this item"
+          className="opacity-0 group-hover/li:opacity-100 hover:text-error shrink-0 mt-0.5"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </li>
+  );
 
   // Group lines into blocks (heading / hr / list / paragraph), keeping the
   // original line index so placeholder edits map back to the right line.
@@ -152,7 +188,7 @@ export default function DraftView({ content, interactive, onChange }: Props) {
     const heading = t.match(/^\*\*(.+?)\*\*:?$/);
     if (atx) {
       flushPara();
-      blocks.push(<h4 key={`h${b++}`}>{renderBold(atx[1], `h${b}`)}</h4>);
+      blocks.push(<h4 key={`h${b++}`}>{renderInline(atx[1], `h${b}`)}</h4>);
       i += 1;
       continue;
     }
@@ -167,9 +203,7 @@ export default function DraftView({ content, interactive, onChange }: Props) {
       const items: ReactNode[] = [];
       while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
         const idx = i;
-        items.push(
-          <li key={`li${idx}`}>{renderLine(lines[idx].trim().replace(/^[-*]\s+/, ''), idx)}</li>,
-        );
+        items.push(listItem(idx, lines[idx].trim().replace(/^[-*]\s+/, '')));
         i += 1;
       }
       blocks.push(<ul key={`ul${b++}`}>{items}</ul>);
@@ -180,9 +214,7 @@ export default function DraftView({ content, interactive, onChange }: Props) {
       const items: ReactNode[] = [];
       while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
         const idx = i;
-        items.push(
-          <li key={`li${idx}`}>{renderLine(lines[idx].trim().replace(/^\d+\.\s+/, ''), idx)}</li>,
-        );
+        items.push(listItem(idx, lines[idx].trim().replace(/^\d+\.\s+/, '')));
         i += 1;
       }
       blocks.push(<ol key={`ol${b++}`}>{items}</ol>);

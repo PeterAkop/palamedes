@@ -45,6 +45,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!tool) {
     return NextResponse.json({ error: 'unknown_tool' }, { status: 400 });
   }
+  // Template tools have no LLM prompt — they can be edited by hand but not
+  // refined by chat.
+  if (tool.template || !tool.systemPrompt) {
+    return NextResponse.json({ error: 'tool_not_refinable' }, { status: 400 });
+  }
 
   // Build a BOUNDED context for the refine so input tokens stay flat
   // round-to-round instead of growing with every prior version:

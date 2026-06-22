@@ -477,6 +477,33 @@ export const firmSettings = pgTable(
 export type FirmSettings = typeof firmSettings.$inferSelect;
 export type NewFirmSettings = typeof firmSettings.$inferInsert;
 
+// --- Client upload links --------------------------------------------------
+
+// Tokenised links that let a client upload files to a case without an
+// account. The token lives in the URL (/upload/<token>); the public upload
+// route resolves it to the case + owner. Expires after a window so a
+// leaked link can't be used indefinitely.
+export const uploadLinks = pgTable(
+  'upload_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    token: text('token').notNull(),
+    caseId: uuid('case_id')
+      .notNull()
+      .references(() => cases.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('upload_links_token_idx').on(t.token),
+    index('upload_links_case_id_idx').on(t.caseId),
+  ],
+);
+
+export type UploadLink = typeof uploadLinks.$inferSelect;
+export type NewUploadLink = typeof uploadLinks.$inferInsert;
+
 // --- Mailbox triage (REMOVED) ---------------------------------------------
 
 // The mailbox-triage feature was removed (confusing UX). This table

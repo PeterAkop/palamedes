@@ -4,9 +4,11 @@ import { z } from 'zod';
 import { cases, db, generationMessages, generations } from '@/db/db';
 import { MODELS } from '@/lib/anthropic';
 import { getCurrentUserId } from '@/lib/auth';
+import { getEvidenceChecklist } from '@/lib/facts/evidence';
 import { buildToolContext } from '@/lib/tools/context';
-import { getTool } from '@/lib/tools/registry';
-import { streamGeneration } from '@/lib/tools/stream';
+import { buildRequestDocumentsEmail, getTool } from '@/lib/tools/registry';
+import { streamGeneration, streamStaticContent } from '@/lib/tools/stream';
+import { getOrCreateUploadLink } from '@/lib/upload/links';
 
 // POST /api/generations — run a tool against a case. Inserts a
 // generations row + the initial user message, then streams the Opus
@@ -69,6 +71,27 @@ export async function POST(req: NextRequest) {
     .values({ caseId, ownerId, toolId, version, status: 'running', model: MODELS.opus })
     .returning({ id: generations.id });
 
+  // Template tools (e.g. Request Documents) build their content directly —
+  // no Opus call. We mint the upload link + the missing-materials list and
+  // stream the assembled email back.
+  if (tool.template) {
+    const token = await getOrCreateUploadLink(caseId, ownerId);
+    const uploadUrl = `${req.nextUrl.origin}/upload/${token}`;
+    const missing = (await getEvidenceChecklist(caseId, ownerId, ctx.caseType))
+      .filter((e) => !e.present)
+      .map((e) => e.label);
+    const content = buildRequestDocumentsEmail({ ctx, uploadUrl, missing });
+    await db.insert(generationMessages).values({
+      generationId: gen.id,
+      role: 'user',
+      content: 'Generate the document-request email.',
+    });
+    return streamStaticContent({ generationId: gen.id, content });
+  }
+
+  if (!tool.systemPrompt || !tool.buildUserPrompt) {
+    return NextResponse.json({ error: 'tool_not_runnable' }, { status: 400 });
+  }
   const userPrompt = tool.buildUserPrompt(ctx);
   await db
     .insert(generationMessages)

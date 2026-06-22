@@ -39,6 +39,128 @@ async function graphPost(accessToken: string, path: string, body: unknown): Prom
   }
 }
 
+// Like graphPost but returns the parsed JSON body (for calls that create a
+// resource we need the id/uploadUrl of — drafts and upload sessions).
+async function graphPostJson<T>(accessToken: string, path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${GRAPH}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    if (res.status === 403) {
+      throw new Error('insufficient_scope');
+    }
+    throw new Error(`Graph POST ${path} failed (${res.status}): ${text.slice(0, 300)}`);
+  }
+  return (await res.json()) as T;
+}
+
+export interface MailAttachment {
+  name: string;
+  contentType: string;
+  content: Buffer;
+}
+
+// Graph caps a single inline fileAttachment at ~3 MB; above that an item
+// must go through an upload session. We also use the total inline size to
+// decide between the one-shot sendMail path and the draft-then-send path.
+const INLINE_ATTACHMENT_LIMIT = 3 * 1024 * 1024;
+// Upload-session chunk size must be a multiple of 320 KiB. ~3.9 MB/chunk.
+const UPLOAD_CHUNK = 320 * 1024 * 12;
+
+// Send mail with file attachments via the connected mailbox, mirroring the
+// client's uploaded files to the lawyer. Small total → a single sendMail
+// with inline base64 attachments. Larger → create a draft, attach each file
+// (inline if small, chunked upload session if large — this is how big files
+// get through), then send. The caller keeps the total under the recipient
+// mailbox's max message size; anything that would blow the budget is left
+// out and listed in the body instead.
+export async function sendMailWithAttachments(
+  accessToken: string,
+  args: { to: string; subject: string; bodyHtml: string; attachments: MailAttachment[] },
+): Promise<void> {
+  const total = args.attachments.reduce((n, a) => n + a.content.length, 0);
+  const toRecipients = [{ emailAddress: { address: args.to } }];
+  const body = { contentType: 'HTML', content: args.bodyHtml };
+
+  // Small total: one-shot sendMail with inline attachments.
+  if (total <= INLINE_ATTACHMENT_LIMIT) {
+    await graphPost(accessToken, '/me/sendMail', {
+      message: {
+        subject: args.subject,
+        body,
+        toRecipients,
+        attachments: args.attachments.map((a) => ({
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          name: a.name,
+          contentType: a.contentType,
+          contentBytes: a.content.toString('base64'),
+        })),
+      },
+      saveToSentItems: true,
+    });
+    return;
+  }
+
+  // Larger: draft → attach each file → send.
+  const draft = await graphPostJson<{ id: string }>(accessToken, '/me/messages', {
+    subject: args.subject,
+    body,
+    toRecipients,
+  });
+  for (const a of args.attachments) {
+    if (a.content.length <= INLINE_ATTACHMENT_LIMIT) {
+      await graphPost(accessToken, `/me/messages/${draft.id}/attachments`, {
+        '@odata.type': '#microsoft.graph.fileAttachment',
+        name: a.name,
+        contentType: a.contentType,
+        contentBytes: a.content.toString('base64'),
+      });
+    } else {
+      const session = await graphPostJson<{ uploadUrl: string }>(
+        accessToken,
+        `/me/messages/${draft.id}/attachments/createUploadSession`,
+        {
+          AttachmentItem: {
+            attachmentType: 'file',
+            name: a.name,
+            size: a.content.length,
+            contentType: a.contentType,
+          },
+        },
+      );
+      await uploadAttachmentChunks(session.uploadUrl, a.content);
+    }
+  }
+  await graphPost(accessToken, `/me/messages/${draft.id}/send`, {});
+}
+
+// PUT a large attachment to its upload session in 320-KiB-aligned chunks.
+// The uploadUrl is pre-authorised, so no Authorization header is sent.
+async function uploadAttachmentChunks(uploadUrl: string, content: Buffer): Promise<void> {
+  const total = content.length;
+  for (let start = 0; start < total; start += UPLOAD_CHUNK) {
+    const end = Math.min(start + UPLOAD_CHUNK, total);
+    const chunk = content.subarray(start, end);
+    const res = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Range': `bytes ${start}-${end - 1}/${total}` },
+      // fetch's BodyInit doesn't accept a Buffer slice (its backing store is
+      // ArrayBufferLike) — copy into a fresh ArrayBuffer-backed Uint8Array.
+      body: new Uint8Array(chunk),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`attachment upload chunk failed (${res.status}): ${text.slice(0, 200)}`);
+    }
+  }
+}
+
 // Send an email as the connected mailbox — HTML if `bodyHtml` is given,
 // otherwise plain text. `saveToSentItems` keeps a copy in the lawyer's
 // Sent folder. Throws `insufficient_scope` if the token predates the

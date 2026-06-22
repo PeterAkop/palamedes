@@ -14,6 +14,7 @@ import {
   NotebookPen,
   Scan,
   Sparkles,
+  Upload,
   Wrench,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -578,6 +579,15 @@ function SourceRow({
                     Outlook
                   </span>
                 )}
+                {source.metadata?.origin === 'client-upload' && (
+                  <span
+                    className="badge badge-outline badge-xs gap-1"
+                    title="Uploaded by the client via a secure link"
+                  >
+                    <Upload className="h-3 w-3" />
+                    Client upload
+                  </span>
+                )}
                 <SourceStatusBadge status={source.status} />
               </div>
             </div>
@@ -1017,6 +1027,7 @@ function ToolsTab({ caseData, send }: { caseData: Case; send: SendConfig }) {
                     caseTitle={caseData.title}
                     toolId={t.id}
                     toolLabel={t.label}
+                    template={t.template}
                     latest={latest}
                     sources={readySources}
                     send={send}
