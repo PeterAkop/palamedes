@@ -9,7 +9,6 @@ import { getCaseById, getClientById } from '@/lib/cases/queries';
 import { getCaseFactsBySource, getCaseFactsView } from '@/lib/facts/case';
 import { getCaseActionPlan } from '@/lib/facts/consolidate';
 import { getEvidenceChecklist } from '@/lib/facts/evidence';
-import { sendToClientEnabled } from '@/lib/flags';
 import { getConnection } from '@/lib/outlook/tokens';
 
 // Force-dynamic at the page level too. The parent layout sets the
@@ -74,7 +73,6 @@ export default async function CaseDetailPage({ params }: Props) {
     ),
   );
   const sendConfig = {
-    enabled: sendToClientEnabled(),
     outlookConnected: outlook.connected,
     mailbox: outlook.accountEmail,
     clientCandidates,

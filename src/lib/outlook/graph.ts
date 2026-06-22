@@ -39,17 +39,21 @@ async function graphPost(accessToken: string, path: string, body: unknown): Prom
   }
 }
 
-// Send a plain-text email as the connected mailbox. `saveToSentItems`
-// keeps a copy in the lawyer's Sent folder. Throws `insufficient_scope`
-// if the token predates the Mail.Send scope (reconnect needed).
+// Send an email as the connected mailbox — HTML if `bodyHtml` is given,
+// otherwise plain text. `saveToSentItems` keeps a copy in the lawyer's
+// Sent folder. Throws `insufficient_scope` if the token predates the
+// Mail.Send scope (reconnect needed).
 export async function sendMail(
   accessToken: string,
-  args: { to: string; subject: string; bodyText: string },
+  args: { to: string; subject: string; bodyText?: string; bodyHtml?: string },
 ): Promise<void> {
+  const body = args.bodyHtml
+    ? { contentType: 'HTML' as const, content: args.bodyHtml }
+    : { contentType: 'Text' as const, content: args.bodyText ?? '' };
   await graphPost(accessToken, '/me/sendMail', {
     message: {
       subject: args.subject,
-      body: { contentType: 'Text', content: args.bodyText },
+      body,
       toRecipients: [{ emailAddress: { address: args.to } }],
     },
     saveToSentItems: true,
