@@ -28,7 +28,8 @@ Rules:
 - Set a per-fact confidence ('high' | 'medium' | 'low') reflecting how unambiguous the fact is in the source. Use 'low' when a value is implied or hard to read.
 - Put atomic factual statements that don't fit a structured field into key_facts. Put follow-ups or missing-evidence observations into action_items.
 - For each action_item set a priority: 'high' if it blocks the application or is legally required / time-critical, 'medium' if needed but not blocking, 'low' for clarifications or nice-to-haves.
-- When a "Case context" block is provided, use it to assign party roles: the named client is the applicant; classify other people by their relationship to the case (sponsor, child, official, representative). Use 'other' only when a party's role genuinely cannot be determined.
+- Only record people who are genuinely parties to the immigration matter (applicant, sponsor, dependants/children, a Home Office official, the legal representative). Do NOT record the email sender, the instructing solicitor, or incidental contacts (people merely cc'd or mentioned in passing) as parties.
+- When a "Case context" block is provided, use it to assign party roles: the named client is the applicant; classify other genuine parties by their relationship to the case (sponsor, child, official, representative). Use 'other' only when a clear party's role truly cannot be determined — prefer to omit an incidental name rather than record it as 'other'.
 - You MUST call the record_case_facts tool exactly once. Do not reply with prose. If the source contains no extractable facts, call the tool with empty arrays.`;
 
 // JSON Schema for the tool. Mirrors sourceFactsSchema (src/lib/facts/

@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   type ActionPlanItem,
   CASE_STATUS_LABEL,
@@ -297,6 +297,31 @@ function SourcesTab({
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
+  // Source jumped to via a fact's provenance link (#source-<id>). We open
+  // it, clear filters and page to it so it's actually visible.
+  const [targetId, setTargetId] = useState<string | null>(null);
+
+  // Read the #source-<id> hash on mount and whenever it changes.
+  useEffect(() => {
+    const readHash = () => {
+      const m = window.location.hash.match(/^#source-(.+)$/);
+      setTargetId(m ? m[1] : null);
+    };
+    readHash();
+    window.addEventListener('hashchange', readHash);
+    return () => window.removeEventListener('hashchange', readHash);
+  }, []);
+
+  // Clear filters and page to the target so its row renders, then scroll.
+  useEffect(() => {
+    if (!targetId) return;
+    const idx = sources.findIndex((s) => s.id === targetId);
+    if (idx === -1) return;
+    setKind('all');
+    setFrom('');
+    setTo('');
+    setPage(Math.floor(idx / SOURCES_PAGE_SIZE) + 1);
+  }, [targetId, sources]);
 
   // Kinds actually present on this case — drives the type dropdown so
   // we don't offer empty filters.
@@ -424,7 +449,12 @@ function SourcesTab({
             <>
               <div className="space-y-2">
                 {pageItems.map((src) => (
-                  <SourceRow key={src.id} source={src} facts={factsBySource[src.id] ?? []} />
+                  <SourceRow
+                    key={src.id}
+                    source={src}
+                    facts={factsBySource[src.id] ?? []}
+                    defaultOpen={src.id === targetId}
+                  />
                 ))}
               </div>
 
@@ -505,11 +535,30 @@ function sortByPriority(facts: CaseFactView[]): CaseFactView[] {
   );
 }
 
-function SourceRow({ source, facts }: { source: Source; facts: CaseFactView[] }) {
+function SourceRow({
+  source,
+  facts,
+  defaultOpen,
+}: {
+  source: Source;
+  facts: CaseFactView[];
+  defaultOpen?: boolean;
+}) {
   const Icon = SOURCE_KIND_ICON[source.kind];
+  const [open, setOpen] = useState(defaultOpen ?? false);
+  // When navigated to via a provenance link, open it and scroll to it.
+  useEffect(() => {
+    if (!defaultOpen) return;
+    setOpen(true);
+    document
+      .getElementById(`source-${source.id}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [defaultOpen, source.id]);
   return (
     <details
       id={`source-${source.id}`}
+      open={open}
+      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
       className="collapse collapse-arrow bg-base-100 border border-base-300 scroll-mt-20"
     >
       <summary className="collapse-title !py-3 min-h-0 pr-10 cursor-pointer">
@@ -893,11 +942,6 @@ function FactsTab({
                       </span>
                       <FactProvenance fact={f} source={sourceById.get(f.sourceId)} />
                     </div>
-                    {f.confidence && f.confidence !== 'high' && (
-                      <span className="badge badge-ghost badge-xs shrink-0 mt-0.5">
-                        {f.confidence}
-                      </span>
-                    )}
                   </li>
                 ),
               )}
