@@ -196,6 +196,20 @@ export interface ActionPlanItem {
   priority?: string;
 }
 
+// A case task (the Action plan, now stateful). Seeded from action_item facts
+// but persists its own status, so check-off survives a reanalyze. `kind` /
+// `suggestedToolId` drive the action button (filled in Phase B). Dismissed
+// tasks are excluded from the view.
+export interface CaseTaskView {
+  id: string;
+  text: string;
+  priority: 'high' | 'medium' | 'low';
+  status: 'open' | 'done';
+  kind: string;
+  suggestedToolId: string | null;
+  origin: 'ai' | 'manual';
+}
+
 // One row of the suggested evidence checklist for a case's route.
 // `present` = the case's facts mention something matching the item;
 // `matchedBy` is the fact value that satisfied it.

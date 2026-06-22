@@ -12,21 +12,23 @@ import {
   Mail,
   MessageCircle,
   NotebookPen,
+  Plus,
   Scan,
   Sparkles,
   Upload,
   Wrench,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, Fragment, useEffect, useMemo, useState } from 'react';
 import {
-  type ActionPlanItem,
   CASE_STATUS_LABEL,
   CASE_TYPE_LABEL,
   type Case,
   type CaseFactGroup,
   type CaseFactView,
+  type CaseTaskView,
   type CaseType,
   type Client,
   type EvidenceCheck,
@@ -59,8 +61,8 @@ interface Props {
   factsBySource: Record<string, CaseFactView[]>;
   // Suggested evidence checklist for the case's route, marked against facts.
   evidence: EvidenceCheck[];
-  // Consolidated, de-duplicated action plan (LLM-merged across sources).
-  actionPlan: ActionPlanItem[];
+  // The case's task list (Action plan) — stateful, seeded from action items.
+  tasks: CaseTaskView[];
 }
 
 export default function CaseTabs({
@@ -70,7 +72,7 @@ export default function CaseTabs({
   facts,
   factsBySource,
   evidence,
-  actionPlan,
+  tasks,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -126,10 +128,11 @@ export default function CaseTabs({
                 )}
                 {t.id === 'facts' && (
                   <FactsTab
+                    caseId={caseData.id}
                     groups={facts}
                     evidence={evidence}
                     caseType={caseData.caseType}
-                    actionPlan={actionPlan}
+                    tasks={tasks}
                     sources={caseData.sources}
                   />
                 )}
@@ -802,13 +805,111 @@ function EvidenceChecklistCard({
   );
 }
 
-// Consolidated action plan — the per-source action items merged across
-// sources into one de-duplicated list (Pass 2), sorted by priority.
-function ActionPlanCard({ items }: { items: ActionPlanItem[] }) {
-  if (items.length === 0) return null;
-  const sorted = [...items].sort(
-    (a, b) => (PRIORITY_RANK[a.priority ?? ''] ?? 3) - (PRIORITY_RANK[b.priority ?? ''] ?? 3),
+// One task row — a checkbox to toggle done, the priority badge, the text,
+// and a hover-× to dismiss. Done rows strike through.
+function TaskRow({
+  task,
+  onToggle,
+  onDismiss,
+}: {
+  task: CaseTaskView;
+  onToggle: () => void;
+  onDismiss: () => void;
+}) {
+  const done = task.status === 'done';
+  return (
+    <li className="group flex items-start gap-2 text-sm py-1.5">
+      <input
+        type="checkbox"
+        checked={done}
+        onChange={onToggle}
+        aria-label={done ? 'Mark not done' : 'Mark done'}
+        className="checkbox checkbox-xs mt-0.5 shrink-0"
+      />
+      <span className="w-14 shrink-0 mt-0.5">
+        <span className={`badge badge-xs ${PRIORITY_BADGE[task.priority] ?? 'badge-ghost'}`}>
+          {task.priority}
+        </span>
+      </span>
+      <span
+        className={`flex-1 ${done ? 'line-through text-base-content/40' : 'text-base-content/80'}`}
+      >
+        {task.text}
+      </span>
+      {task.origin === 'manual' && (
+        <span className="badge badge-ghost badge-xs shrink-0 mt-0.5">added</span>
+      )}
+      <button
+        type="button"
+        onClick={onDismiss}
+        title="Dismiss task"
+        aria-label="Dismiss task"
+        className="opacity-0 group-hover:opacity-100 hover:text-error shrink-0 mt-0.5"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </li>
   );
+}
+
+// Action plan — the case's task list. Seeded from the consolidated action
+// items but now stateful: check items off (persisted), dismiss noise, add
+// your own. Optimistic updates keep it snappy; the server is the source of
+// truth (router.refresh re-pulls after each change).
+function ActionPlanCard({ caseId, tasks }: { caseId: string; tasks: CaseTaskView[] }) {
+  const router = useRouter();
+  const [items, setItems] = useState<CaseTaskView[]>(tasks);
+  // Re-sync when the server sends a fresh list (after refresh / reanalyze).
+  useEffect(() => setItems(tasks), [tasks]);
+  const [adding, setAdding] = useState(false);
+  const [newText, setNewText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [showDone, setShowDone] = useState(false);
+
+  const open = items.filter((t) => t.status === 'open');
+  const done = items.filter((t) => t.status === 'done');
+
+  async function patch(id: string, status: 'open' | 'done' | 'dismissed') {
+    setItems((prev) =>
+      status === 'dismissed'
+        ? prev.filter((t) => t.id !== id)
+        : prev.map((t) => (t.id === id ? { ...t, status } : t)),
+    );
+    try {
+      await fetch(`/api/cases/${caseId}/tasks/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+    } finally {
+      router.refresh();
+    }
+  }
+
+  async function addTask(e: FormEvent) {
+    e.preventDefault();
+    const text = newText.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/cases/${caseId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { task?: CaseTaskView };
+      if (res.ok && data.task) {
+        const task = data.task;
+        setItems((prev) => [...prev.filter((t) => t.id !== task.id), task]);
+        setNewText('');
+        setAdding(false);
+        router.refresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="card bg-base-100 border border-base-300">
       <div className="card-body p-4">
@@ -816,25 +917,74 @@ function ActionPlanCard({ items }: { items: ActionPlanItem[] }) {
           <h3 className="card-title text-sm gap-2">
             <ClipboardList className="h-4 w-4 text-primary" />
             Action plan
-            <span className="badge badge-ghost badge-sm">{items.length}</span>
+            {open.length > 0 && <span className="badge badge-ghost badge-sm">{open.length}</span>}
           </h3>
-          <span className="text-xs text-base-content/40 shrink-0">Consolidated across sources</span>
+          <button
+            type="button"
+            onClick={() => setAdding((v) => !v)}
+            className="btn btn-ghost btn-xs gap-1"
+          >
+            <Plus className="h-3 w-3" />
+            Add task
+          </button>
         </div>
-        <ul className="mt-1 divide-y divide-base-200">
-          {sorted.map((it) => (
-            <li key={it.text} className="flex items-start gap-2 text-sm py-1.5">
-              {/* Fixed-width badge column so the text aligns across all rows. */}
-              <span className="w-16 shrink-0 mt-0.5">
-                <span
-                  className={`badge badge-xs ${PRIORITY_BADGE[it.priority ?? ''] ?? 'badge-ghost'}`}
-                >
-                  {it.priority ?? '—'}
-                </span>
-              </span>
-              <span className="text-base-content/80">{it.text}</span>
-            </li>
-          ))}
-        </ul>
+
+        {adding && (
+          <form onSubmit={addTask} className="flex items-center gap-2">
+            <input
+              value={newText}
+              onChange={(e) => setNewText(e.target.value)}
+              placeholder="Add a task…"
+              className="input input-bordered input-sm flex-1"
+            />
+            <button
+              type="submit"
+              disabled={busy || !newText.trim()}
+              className="btn btn-primary btn-sm"
+            >
+              Add
+            </button>
+          </form>
+        )}
+
+        {open.length === 0 && done.length === 0 ? (
+          <p className="text-sm text-base-content/50 italic">No outstanding actions.</p>
+        ) : (
+          <ul className="mt-1 divide-y divide-base-200">
+            {open.map((t) => (
+              <TaskRow
+                key={t.id}
+                task={t}
+                onToggle={() => patch(t.id, 'done')}
+                onDismiss={() => patch(t.id, 'dismissed')}
+              />
+            ))}
+          </ul>
+        )}
+
+        {done.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowDone((v) => !v)}
+              className="text-xs text-base-content/50 hover:text-base-content/70"
+            >
+              {showDone ? 'Hide' : 'Show'} {done.length} completed
+            </button>
+            {showDone && (
+              <ul className="mt-1 divide-y divide-base-200">
+                {done.map((t) => (
+                  <TaskRow
+                    key={t.id}
+                    task={t}
+                    onToggle={() => patch(t.id, 'open')}
+                    onDismiss={() => patch(t.id, 'dismissed')}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -878,31 +1028,35 @@ function FactProvenance({ fact, source }: { fact: CaseFactView; source?: Source 
 }
 
 function FactsTab({
+  caseId,
   groups,
   evidence,
   caseType,
-  actionPlan,
+  tasks,
   sources,
 }: {
+  caseId: string;
   groups: CaseFactGroup[];
   evidence: EvidenceCheck[];
   caseType: CaseType;
-  actionPlan: ActionPlanItem[];
+  tasks: CaseTaskView[];
   sources: Source[];
 }) {
   const total = groups.reduce((n, g) => n + g.facts.length, 0);
-  const hasPlan = actionPlan.length > 0;
+  // Once tasks exist, drop the raw per-source action_item group (the Action
+  // plan now covers them).
+  const hasTasks = tasks.length > 0;
   const sourceById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
   // Drop the standalone Evidence group (the checklist above covers it), and
-  // the raw per-source action_item group when a consolidated plan exists.
+  // the raw per-source action_item group when the task list covers it.
   const displayGroups = groups.filter(
-    (g) => g.type !== 'evidence' && !(g.type === 'action_item' && hasPlan),
+    (g) => g.type !== 'evidence' && !(g.type === 'action_item' && hasTasks),
   );
 
   return (
     <div className="flex flex-col gap-3">
       <EvidenceChecklistCard evidence={evidence} caseType={caseType} />
-      {hasPlan && <ActionPlanCard items={actionPlan} />}
+      <ActionPlanCard caseId={caseId} tasks={tasks} />
 
       <div className="flex items-center justify-between">
         <h2 className="card-title text-base gap-2">

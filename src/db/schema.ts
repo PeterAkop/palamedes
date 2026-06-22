@@ -314,6 +314,55 @@ export const facts = pgTable(
 export type Fact = typeof facts.$inferSelect;
 export type NewFact = typeof facts.$inferInsert;
 
+// --- Case tasks (Action plan) ---------------------------------------------
+
+// The case's working to-do list. Seeded from the consolidated action_item
+// facts (Pass 2), but — unlike the old action_plan_json blob — each task is
+// a durable row with its own `status`, so checking one off survives a
+// reanalyze. Reconciliation keys on `dedup_key` (normalised text): a
+// regeneration upserts AI tasks by key, keeps their status, prunes vanished
+// *open* AI tasks, and never touches `manual` / done / dismissed ones.
+export const CASE_TASK_STATUSES = ['open', 'done', 'dismissed'] as const;
+export type CaseTaskStatus = (typeof CASE_TASK_STATUSES)[number];
+export const CASE_TASK_ORIGINS = ['ai', 'manual'] as const;
+export type CaseTaskOrigin = (typeof CASE_TASK_ORIGINS)[number];
+
+export const caseTasks = pgTable(
+  'case_tasks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    caseId: uuid('case_id')
+      .notNull()
+      .references(() => cases.id, { onDelete: 'cascade' }),
+    ownerId: text('owner_id').notNull(),
+    text: text('text').notNull(),
+    priority: text('priority').notNull().default('medium'),
+    status: text('status').notNull().default('open'),
+    // Classification for the action button + which Tool performs it. Phase A
+    // leaves these at defaults; Phase B fills them from the consolidation.
+    kind: text('kind').notNull().default('other'),
+    suggestedToolId: text('suggested_tool_id'),
+    origin: text('origin').notNull().default('ai'),
+    // Stable identity for reconciliation across regenerations (normalised
+    // text). Unique per case so an AI regen upserts rather than duplicates.
+    dedupKey: text('dedup_key').notNull(),
+    doneAt: timestamp('done_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('case_tasks_case_id_idx').on(t.caseId),
+    index('case_tasks_owner_id_idx').on(t.ownerId),
+    uniqueIndex('case_tasks_case_dedup_idx').on(t.caseId, t.dedupKey),
+    check('case_tasks_status_check', sql`${t.status} IN ('open','done','dismissed')`),
+    check('case_tasks_priority_check', sql`${t.priority} IN ('high','medium','low')`),
+    check('case_tasks_origin_check', sql`${t.origin} IN ('ai','manual')`),
+  ],
+);
+
+export type CaseTask = typeof caseTasks.$inferSelect;
+export type NewCaseTask = typeof caseTasks.$inferInsert;
+
 // --- Generations ----------------------------------------------------------
 
 // A `generation` is one run of a Tool (e.g. "Cover Letter — Spouse
