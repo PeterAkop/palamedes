@@ -217,6 +217,16 @@ export function checkEvidence(caseType: string, factValues: string[]): EvidenceC
   });
 }
 
+// Whether an action-item's text refers to a piece of expected evidence for
+// the route (keyword match against the same checklist). Used to drop
+// "collect X" tasks that the Evidence checklist already tracks, so the
+// have-list (checklist) and do-list (action plan) don't duplicate.
+export function taskMatchesEvidence(caseType: string, text: string): boolean {
+  const items = REQUIRED_EVIDENCE[caseType] ?? GENERIC;
+  const t = text.toLowerCase();
+  return items.some((item) => item.keywords.some((k) => t.includes(k)));
+}
+
 // Owner-scoped: load the case's facts and build the evidence checklist.
 export async function getEvidenceChecklist(
   caseId: string,

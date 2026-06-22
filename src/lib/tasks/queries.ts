@@ -32,15 +32,30 @@ function asPriority(p: string | null | undefined): Priority {
 export async function reconcileCaseTasks(
   caseId: string,
   ownerId: string,
-  incoming: Array<{ text: string; priority: string }>,
+  incoming: Array<{
+    text: string;
+    priority: string;
+    kind?: string;
+    suggestedToolId?: string | null;
+  }>,
 ): Promise<void> {
   // Dedup the incoming list by key (the model can still emit near-dupes).
-  const byKey = new Map<string, { text: string; priority: Priority }>();
+  const byKey = new Map<
+    string,
+    { text: string; priority: Priority; kind: string; suggestedToolId: string | null }
+  >();
   for (const it of incoming) {
     const text = it.text.trim();
     if (!text) continue;
     const key = normalizeTaskKey(text);
-    if (!byKey.has(key)) byKey.set(key, { text, priority: asPriority(it.priority) });
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        text,
+        priority: asPriority(it.priority),
+        kind: it.kind ?? 'other',
+        suggestedToolId: it.suggestedToolId ?? null,
+      });
+    }
   }
 
   const existing = await db
@@ -59,17 +74,30 @@ export async function reconcileCaseTasks(
           ownerId,
           text: it.text,
           priority: it.priority,
+          kind: it.kind,
+          suggestedToolId: it.suggestedToolId,
           dedupKey: key,
           origin: 'ai',
           status: 'open',
         })
         .onConflictDoNothing();
     } else if (ex.status === 'open' && ex.origin === 'ai') {
-      // Refresh wording/priority without disturbing status.
-      if (ex.text !== it.text || ex.priority !== it.priority) {
+      // Refresh wording/priority/classification without disturbing status.
+      if (
+        ex.text !== it.text ||
+        ex.priority !== it.priority ||
+        ex.kind !== it.kind ||
+        ex.suggestedToolId !== it.suggestedToolId
+      ) {
         await db
           .update(caseTasks)
-          .set({ text: it.text, priority: it.priority, updatedAt: new Date() })
+          .set({
+            text: it.text,
+            priority: it.priority,
+            kind: it.kind,
+            suggestedToolId: it.suggestedToolId,
+            updatedAt: new Date(),
+          })
           .where(eq(caseTasks.id, ex.id));
       }
     }
