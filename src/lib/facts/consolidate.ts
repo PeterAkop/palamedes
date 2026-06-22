@@ -1,9 +1,9 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import type { ActionPlanItem } from '@/data/cases';
 import { cases, db, facts } from '@/db/db';
 import { anthropic, MODELS } from '@/lib/anthropic';
+import { reconcileCaseTasks } from '@/lib/tasks/queries';
 
 // Pass 2 — action-item consolidation. The per-source extraction produces
 // many overlapping action items ("Confirm which evidence to include" vs
@@ -63,63 +63,38 @@ export async function consolidateCaseActionItems(caseId: string, ownerId: string
     .map((r) => ({ text: (r.value ?? '').trim(), priority: r.priority }))
     .filter((i) => i.text.length > 0);
 
-  if (items.length === 0) {
-    await db
-      .update(cases)
-      .set({ actionPlanJson: [], actionPlanGeneratedAt: new Date(), updatedAt: new Date() })
-      .where(eq(cases.id, caseId));
-    return;
+  // No raw action items → an empty incoming list, which reconciliation uses
+  // to prune any stale AI tasks (keeping manual / done / dismissed ones).
+  let consolidated: Array<{ text: string; priority: string }> = [];
+
+  if (items.length > 0) {
+    const list = items
+      .map((it, i) => `${i + 1}. [${it.priority ?? 'unset'}] ${it.text}`)
+      .join('\n');
+
+    const response = await anthropic.messages.create({
+      model: MODELS.haiku,
+      max_tokens: 2048,
+      temperature: 0,
+      system: CONSOLIDATE_SYSTEM_PROMPT,
+      tools: [CONSOLIDATE_TOOL],
+      tool_choice: { type: 'tool', name: CONSOLIDATE_TOOL.name },
+      messages: [{ role: 'user', content: `Action items extracted from this case:\n\n${list}` }],
+    });
+
+    const toolUse = response.content.find(
+      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === CONSOLIDATE_TOOL.name,
+    );
+    const parsed = toolUse ? actionPlanSchema.safeParse(toolUse.input) : null;
+    if (!parsed?.success) {
+      throw new Error('action-plan consolidation returned no valid plan');
+    }
+    consolidated = parsed.data.items;
   }
 
-  const list = items.map((it, i) => `${i + 1}. [${it.priority ?? 'unset'}] ${it.text}`).join('\n');
-
-  const response = await anthropic.messages.create({
-    model: MODELS.haiku,
-    max_tokens: 2048,
-    temperature: 0,
-    system: CONSOLIDATE_SYSTEM_PROMPT,
-    tools: [CONSOLIDATE_TOOL],
-    tool_choice: { type: 'tool', name: CONSOLIDATE_TOOL.name },
-    messages: [{ role: 'user', content: `Action items extracted from this case:\n\n${list}` }],
-  });
-
-  const toolUse = response.content.find(
-    (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === CONSOLIDATE_TOOL.name,
-  );
-  const parsed = toolUse ? actionPlanSchema.safeParse(toolUse.input) : null;
-  if (!parsed?.success) {
-    throw new Error('action-plan consolidation returned no valid plan');
-  }
-
-  await db
-    .update(cases)
-    .set({
-      actionPlanJson: parsed.data.items,
-      actionPlanGeneratedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(cases.id, caseId));
-}
-
-// Read the stored consolidated action plan for the case (owner-scoped).
-// Returns [] when none has been generated yet.
-export async function getCaseActionPlan(
-  caseId: string,
-  ownerId: string,
-): Promise<ActionPlanItem[]> {
-  const [row] = await db
-    .select({ plan: cases.actionPlanJson })
-    .from(cases)
-    .where(and(eq(cases.id, caseId), eq(cases.ownerId, ownerId)))
-    .limit(1);
-  const plan = row?.plan;
-  if (!Array.isArray(plan)) return [];
-  return plan
-    .filter(
-      (p): p is { text: string; priority?: string } => Boolean(p) && typeof p.text === 'string',
-    )
-    .map((p) => ({
-      text: p.text,
-      priority: typeof p.priority === 'string' ? p.priority : undefined,
-    }));
+  // Reconcile into the durable case_tasks store (preserves done/dismissed and
+  // manual tasks across regenerations). The legacy action_plan_json column is
+  // left untouched — case_tasks is the source of truth now.
+  await reconcileCaseTasks(caseId, ownerId, consolidated);
+  await db.update(cases).set({ actionPlanGeneratedAt: new Date() }).where(eq(cases.id, caseId));
 }

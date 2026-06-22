@@ -7,9 +7,9 @@ import { CASE_STATUS_LABEL, CASE_TYPE_LABEL } from '@/data/cases';
 import { getCurrentUserId } from '@/lib/auth';
 import { getCaseById, getClientById } from '@/lib/cases/queries';
 import { getCaseFactsBySource, getCaseFactsView } from '@/lib/facts/case';
-import { getCaseActionPlan } from '@/lib/facts/consolidate';
 import { getEvidenceChecklist } from '@/lib/facts/evidence';
 import { getConnection } from '@/lib/outlook/tokens';
+import { getCaseTasks } from '@/lib/tasks/queries';
 
 // Force-dynamic at the page level too. The parent layout sets the
 // same flag, but route segment config doesn't cascade — without
@@ -46,8 +46,9 @@ export default async function CaseDetailPage({ params }: Props) {
   const factsBySource = await getCaseFactsBySource(caseData.id, ownerId);
   // Suggested evidence checklist for this route, marked against the facts.
   const evidence = await getEvidenceChecklist(caseData.id, ownerId, caseData.caseType);
-  // Consolidated, de-duplicated action plan (LLM-merged across sources).
-  const actionPlan = await getCaseActionPlan(caseData.id, ownerId);
+  // The case's task list (Action plan) — stateful, seeded from the
+  // consolidated action items but persisting check-off across reanalyzes.
+  const tasks = await getCaseTasks(caseData.id, ownerId);
 
   // Outlook connection status for this owner. Resilient to the
   // integration_tokens table not existing yet (pre-migration) so the
@@ -120,7 +121,7 @@ export default async function CaseDetailPage({ params }: Props) {
         facts={factGroups}
         factsBySource={factsBySource}
         evidence={evidence}
-        actionPlan={actionPlan}
+        tasks={tasks}
       />
     </div>
   );
