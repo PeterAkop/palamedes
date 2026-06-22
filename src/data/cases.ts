@@ -183,3 +183,12 @@ export interface CaseFactGroup {
   label: string;
   facts: CaseFactView[];
 }
+
+// One row of the suggested evidence checklist for a case's route.
+// `present` = the case's facts mention something matching the item;
+// `matchedBy` is the fact value that satisfied it.
+export interface EvidenceCheck {
+  label: string;
+  present: boolean;
+  matchedBy?: string;
+}
