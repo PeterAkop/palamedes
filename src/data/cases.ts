@@ -184,6 +184,13 @@ export interface CaseFactGroup {
   facts: CaseFactView[];
 }
 
+// One item of the consolidated, de-duplicated action plan for a case
+// (an LLM merges the per-source action_item facts into this list).
+export interface ActionPlanItem {
+  text: string;
+  priority?: string;
+}
+
 // One row of the suggested evidence checklist for a case's route.
 // `present` = the case's facts mention something matching the item;
 // `matchedBy` is the fact value that satisfied it.

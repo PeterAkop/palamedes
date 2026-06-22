@@ -7,6 +7,7 @@ import { CASE_STATUS_LABEL, CASE_TYPE_LABEL } from '@/data/cases';
 import { getCurrentUserId } from '@/lib/auth';
 import { getCaseById, getClientById } from '@/lib/cases/queries';
 import { getCaseFactsBySource, getCaseFactsView } from '@/lib/facts/case';
+import { getCaseActionPlan } from '@/lib/facts/consolidate';
 import { getEvidenceChecklist } from '@/lib/facts/evidence';
 import { sendToClientEnabled } from '@/lib/flags';
 import { getConnection } from '@/lib/outlook/tokens';
@@ -46,6 +47,8 @@ export default async function CaseDetailPage({ params }: Props) {
   const factsBySource = await getCaseFactsBySource(caseData.id, ownerId);
   // Suggested evidence checklist for this route, marked against the facts.
   const evidence = await getEvidenceChecklist(caseData.id, ownerId, caseData.caseType);
+  // Consolidated, de-duplicated action plan (LLM-merged across sources).
+  const actionPlan = await getCaseActionPlan(caseData.id, ownerId);
 
   // Outlook connection status for this owner. Resilient to the
   // integration_tokens table not existing yet (pre-migration) so the
@@ -119,6 +122,7 @@ export default async function CaseDetailPage({ params }: Props) {
         facts={factGroups}
         factsBySource={factsBySource}
         evidence={evidence}
+        actionPlan={actionPlan}
       />
     </div>
   );

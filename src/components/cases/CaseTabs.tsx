@@ -19,6 +19,7 @@ import {
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Fragment, useMemo, useState } from 'react';
 import {
+  type ActionPlanItem,
   CASE_STATUS_LABEL,
   CASE_TYPE_LABEL,
   type Case,
@@ -55,6 +56,8 @@ interface Props {
   factsBySource: Record<string, CaseFactView[]>;
   // Suggested evidence checklist for the case's route, marked against facts.
   evidence: EvidenceCheck[];
+  // Consolidated, de-duplicated action plan (LLM-merged across sources).
+  actionPlan: ActionPlanItem[];
 }
 
 export default function CaseTabs({
@@ -64,6 +67,7 @@ export default function CaseTabs({
   facts,
   factsBySource,
   evidence,
+  actionPlan,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -120,7 +124,12 @@ export default function CaseTabs({
                   />
                 )}
                 {t.id === 'facts' && (
-                  <FactsTab groups={facts} evidence={evidence} caseType={caseData.caseType} />
+                  <FactsTab
+                    groups={facts}
+                    evidence={evidence}
+                    caseType={caseData.caseType}
+                    actionPlan={actionPlan}
+                  />
                 )}
                 {t.id === 'tools' && <ToolsTab caseData={caseData} send={send} />}
               </div>
@@ -721,20 +730,62 @@ function EvidenceChecklistCard({
   );
 }
 
+// Consolidated action plan — the per-source action items merged across
+// sources into one de-duplicated list (Pass 2), sorted by priority.
+function ActionPlanCard({ items }: { items: ActionPlanItem[] }) {
+  if (items.length === 0) return null;
+  const sorted = [...items].sort(
+    (a, b) => (PRIORITY_RANK[a.priority ?? ''] ?? 3) - (PRIORITY_RANK[b.priority ?? ''] ?? 3),
+  );
+  return (
+    <div className="card bg-base-100 border border-base-300">
+      <div className="card-body p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="card-title text-sm gap-2">
+            <ClipboardList className="h-4 w-4 text-primary" />
+            Action plan
+            <span className="badge badge-ghost badge-sm">{items.length}</span>
+          </h3>
+          <span className="text-xs text-base-content/40 shrink-0">Consolidated across sources</span>
+        </div>
+        <ul className="mt-1 space-y-1.5">
+          {sorted.map((it) => (
+            <li key={it.text} className="flex items-start gap-2 text-sm">
+              <span
+                className={`badge badge-xs mt-0.5 shrink-0 ${PRIORITY_BADGE[it.priority ?? ''] ?? 'badge-ghost'}`}
+              >
+                {it.priority ?? '—'}
+              </span>
+              <span className="text-base-content/80">{it.text}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 function FactsTab({
   groups,
   evidence,
   caseType,
+  actionPlan,
 }: {
   groups: CaseFactGroup[];
   evidence: EvidenceCheck[];
   caseType: CaseType;
+  actionPlan: ActionPlanItem[];
 }) {
   const total = groups.reduce((n, g) => n + g.facts.length, 0);
+  // When a consolidated plan exists, show it instead of the raw, duplicated
+  // per-source action_item group.
+  const hasPlan = actionPlan.length > 0;
+  const displayGroups = hasPlan ? groups.filter((g) => g.type !== 'action_item') : groups;
 
   return (
     <div className="flex flex-col gap-3">
       <EvidenceChecklistCard evidence={evidence} caseType={caseType} />
+      {hasPlan && <ActionPlanCard items={actionPlan} />}
 
       <div className="flex items-center justify-between">
         <h2 className="card-title text-base gap-2">
@@ -752,7 +803,7 @@ function FactsTab({
         </p>
       )}
 
-      {groups.map((group) => (
+      {displayGroups.map((group) => (
         <div key={group.type} className="card bg-base-100 border border-base-300">
           <div className="card-body p-4">
             <p className="text-xs uppercase tracking-wide text-base-content/50">{group.label}</p>

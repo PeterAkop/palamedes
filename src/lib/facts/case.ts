@@ -94,9 +94,122 @@ export function groupCaseFacts(rows: Fact[]): FactGroup[] {
   })).filter((g) => g.facts.length > 0);
 }
 
+function toFactView(f: Fact, titleById: Map<string, string>): CaseFactView {
+  return {
+    id: f.id,
+    type: f.type as FactType,
+    label: f.label,
+    value: f.value,
+    factDate: f.factDate,
+    confidence: f.confidence,
+    sourceId: f.sourceId,
+    sourceTitle: titleById.get(f.sourceId) ?? 'Unknown source',
+  };
+}
+
+// --- Near-duplicate collapse (free-text facts) ----------------------------
+// Different sources phrase the same action item / evidence differently
+// ("Confirm which evidence to include" vs "Clarify which evidence items
+// should be included"). Exact dedup misses these, so we cluster by token
+// overlap. Deterministic and cheap (no LLM) — heuristic, not perfect.
+
+const COLLAPSE_TYPES = new Set<FactType>(['action_item', 'evidence', 'key_fact']);
+const SIMILARITY_THRESHOLD = 0.5;
+
+const STOPWORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'and',
+  'or',
+  'of',
+  'to',
+  'for',
+  'in',
+  'on',
+  'with',
+  'which',
+  'should',
+  'be',
+  'is',
+  'are',
+  'all',
+  'any',
+  'from',
+  'as',
+  'that',
+  'this',
+  'it',
+  'at',
+  'by',
+  'your',
+  'our',
+  'their',
+  'if',
+  'was',
+  'were',
+  'whether',
+]);
+
+// Lowercase, strip punctuation, crude-stem (drop a trailing plural/tense
+// suffix so include/included/items/item collide), drop stopwords + 1-char.
+function tokenize(s: string): Set<string> {
+  const words = s
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .map((w) => w.replace(/(ings?|ed|es|s|e)$/u, ''))
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w));
+  return new Set(words);
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter += 1;
+  return inter / (a.size + b.size - inter);
+}
+
+const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+function higherPriority(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return (PRIORITY_ORDER[a] ?? 3) <= (PRIORITY_ORDER[b] ?? 3) ? a : b;
+}
+
+function collapseSimilarFacts(views: CaseFactView[]): CaseFactView[] {
+  const clusters: Array<{
+    rep: CaseFactView;
+    tokens: Set<string>;
+    sources: Set<string>;
+    priority: string | null;
+  }> = [];
+  for (const v of views) {
+    const tokens = tokenize(v.value ?? '');
+    const cluster = clusters.find((c) => jaccard(c.tokens, tokens) >= SIMILARITY_THRESHOLD);
+    if (cluster) {
+      // Keep the most specific (most tokens) phrasing as representative.
+      if (tokens.size > cluster.tokens.size) {
+        cluster.rep = v;
+        cluster.tokens = tokens;
+      }
+      cluster.sources.add(v.sourceTitle);
+      cluster.priority = higherPriority(cluster.priority, v.label);
+    } else {
+      clusters.push({ rep: v, tokens, sources: new Set([v.sourceTitle]), priority: v.label });
+    }
+  }
+  return clusters.map((c) => ({
+    ...c.rep,
+    label: c.priority ?? c.rep.label,
+    // Note when the same item came from several sources.
+    sourceTitle: c.sources.size > 1 ? `${c.sources.size} sources` : c.rep.sourceTitle,
+  }));
+}
+
 // View model for the Facts tab: grouped facts with their source title as
-// provenance. Serializable (no Date columns) so it crosses the RSC →
-// client boundary cleanly.
+// provenance, with near-duplicate free-text facts collapsed. Serializable
+// (no Date columns) so it crosses the RSC → client boundary cleanly.
 export async function getCaseFactsView(caseId: string, ownerId: string): Promise<CaseFactGroup[]> {
   const rows = await getCaseFacts(caseId, ownerId);
   if (rows.length === 0) return [];
@@ -108,20 +221,14 @@ export async function getCaseFactsView(caseId: string, ownerId: string): Promise
     .where(inArray(sources.id, sourceIds));
   const titleById = new Map(srcRows.map((s) => [s.id, s.title]));
 
-  return groupCaseFacts(rows).map((group) => ({
-    type: group.type,
-    label: group.label,
-    facts: group.facts.map((f) => ({
-      id: f.id,
-      type: f.type as FactType,
-      label: f.label,
-      value: f.value,
-      factDate: f.factDate,
-      confidence: f.confidence,
-      sourceId: f.sourceId,
-      sourceTitle: titleById.get(f.sourceId) ?? 'Unknown source',
-    })),
-  }));
+  return groupCaseFacts(rows).map((group) => {
+    const views = group.facts.map((f) => toFactView(f, titleById));
+    return {
+      type: group.type,
+      label: group.label,
+      facts: COLLAPSE_TYPES.has(group.type) ? collapseSimilarFacts(views) : views,
+    };
+  });
 }
 
 // Each source's own facts, keyed by source id — for the per-source view
