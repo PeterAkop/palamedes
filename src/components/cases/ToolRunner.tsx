@@ -22,6 +22,9 @@ interface Props {
   caseTitle: string;
   toolId: string;
   toolLabel: string;
+  // Template tools (e.g. Request Documents) build their content directly —
+  // editable by hand but not refinable by chat.
+  template?: boolean;
   // The latest generation for this tool on the case, if any — drives
   // the "View" button and the run-label. Its message thread is already
   // loaded (listGenerationsForCase), so viewing needs no extra fetch.
@@ -74,6 +77,7 @@ export default function ToolRunner({
   caseTitle,
   toolId,
   toolLabel,
+  template,
   latest,
   sources,
   send,
@@ -654,25 +658,28 @@ export default function ToolRunner({
                 </div>
               )}
 
-              {/* Refine chat — rewrites the draft in place. */}
-              <form onSubmit={handleRefine} className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  disabled={isStreaming || isEditing || !generationId}
-                  placeholder="Describe a change — the draft will be rewritten…"
-                  className="input input-bordered input-sm flex-1"
-                />
-                <button
-                  type="submit"
-                  disabled={isStreaming || isEditing || !generationId || !chatInput.trim()}
-                  className="btn btn-sm btn-primary btn-square"
-                  aria-label="Send refinement"
-                >
-                  <Send className="h-4 w-4" />
-                </button>
-              </form>
+              {/* Refine chat — rewrites the draft in place. Not for template
+                  tools (they're built deterministically; edit by hand). */}
+              {!template && (
+                <form onSubmit={handleRefine} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    disabled={isStreaming || isEditing || !generationId}
+                    placeholder="Describe a change — the draft will be rewritten…"
+                    className="input input-bordered input-sm flex-1"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isStreaming || isEditing || !generationId || !chatInput.trim()}
+                    className="btn btn-sm btn-primary btn-square"
+                    aria-label="Send refinement"
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
+                </form>
+              )}
 
               <div className="modal-action">
                 <button type="button" onClick={closeDialog} className="btn btn-ghost">

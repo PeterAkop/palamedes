@@ -1017,6 +1017,7 @@ function ToolsTab({ caseData, send }: { caseData: Case; send: SendConfig }) {
                     caseTitle={caseData.title}
                     toolId={t.id}
                     toolLabel={t.label}
+                    template={t.template}
                     latest={latest}
                     sources={readySources}
                     send={send}

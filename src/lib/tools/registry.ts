@@ -38,8 +38,13 @@ export interface ToolDef {
   label: string;
   description: string;
   category: string;
-  systemPrompt: string;
-  buildUserPrompt: (ctx: ToolContext) => string;
+  // LLM tools provide a prompt; template tools (e.g. Request Documents)
+  // build their content deterministically and omit these.
+  systemPrompt?: string;
+  buildUserPrompt?: (ctx: ToolContext) => string;
+  // Template tools: the generation route builds the content directly
+  // (no Opus call) — see buildRequestDocumentsEmail.
+  template?: boolean;
 }
 
 // Shared closing guidance appended to every tool's system prompt — the
@@ -121,6 +126,14 @@ function renderContext(ctx: ToolContext): string {
 
 export const TOOLS: ToolDef[] = [
   {
+    id: 'request-documents',
+    label: 'Request Documents',
+    description:
+      'Email the client a secure link to upload the documents still needed for the case.',
+    category: 'Onboarding',
+    template: true,
+  },
+  {
     id: 'client-care-letter',
     label: 'Client Care Letter',
     description: 'SRA-compliant client care / engagement letter for new instructions.',
@@ -169,4 +182,68 @@ export const TOOLS: ToolDef[] = [
 
 export function getTool(id: string): ToolDef | undefined {
   return TOOLS.find((t) => t.id === id);
+}
+
+// Build the "Request Documents" email deterministically (template tool):
+// firm letterhead + a secure upload link + the list of documents still
+// needed. `[DATE]` / `[OUR REFERENCE]` are left as fillable placeholders;
+// the materials are a list the lawyer can prune (× per item).
+export function buildRequestDocumentsEmail(args: {
+  ctx: ToolContext;
+  uploadUrl: string;
+  missing: string[];
+}): string {
+  const { ctx, uploadUrl, missing } = args;
+  const f = ctx.firm;
+  const out: string[] = [];
+
+  if (f?.firmName) out.push(`**${f.firmName}**`);
+  if (f?.address) out.push(f.address);
+  const contact = [
+    f?.phone && `Tel: ${f.phone}`,
+    f?.email && `Email: ${f.email}`,
+    f?.website && `Web: ${f.website}`,
+  ]
+    .filter(Boolean)
+    .join('  ');
+  if (contact) out.push(contact);
+  out.push('', '---', '');
+
+  out.push(`OUR REFERENCE: ${ctx.ourReference?.trim() || '[OUR REFERENCE]'}`);
+  out.push('DATE: [DATE]');
+  out.push('');
+
+  out.push(`Dear ${ctx.clientName},`);
+  out.push('');
+  out.push('**Re: Documents needed for your application**');
+  out.push('');
+  out.push(
+    'To progress your matter, we need some documents from you. Please upload them securely using the link below:',
+  );
+  out.push('');
+  out.push(uploadUrl);
+  out.push('');
+
+  if (missing.length > 0) {
+    out.push('The documents we still need are:');
+    out.push('');
+    for (const m of missing) out.push(`- ${m}`);
+    out.push('');
+  } else {
+    out.push('Please upload any documents relevant to your application.');
+    out.push('');
+  }
+
+  out.push('If any of these do not apply to you, please let us know.');
+  out.push('');
+  out.push('Once we have received your documents, we will review them and be in touch.');
+  out.push('');
+  out.push('Yours sincerely,');
+  out.push('');
+  if (f?.signatoryName) out.push(f.signatoryName);
+  if (f?.firmName) out.push(f.firmName);
+  const signEmail = f?.signatoryEmail ?? f?.email;
+  if (signEmail) out.push(signEmail);
+
+  return out.join('\n');
 }

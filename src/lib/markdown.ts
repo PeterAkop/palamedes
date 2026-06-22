@@ -13,9 +13,11 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-// Inline formatting within a line: **bold** -> <strong>.
+// Inline formatting within a line: auto-link bare URLs, then **bold**.
 function inline(s: string): string {
-  return escapeHtml(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  return escapeHtml(s)
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 }
 
 export function renderMarkdownToHtml(md: string): string {

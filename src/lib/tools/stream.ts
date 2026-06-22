@@ -99,3 +99,47 @@ export function streamGeneration({ generationId, system, messages }: StreamArgs)
     },
   });
 }
+
+// Like streamGeneration but for template tools: emit pre-built content as a
+// single delta (so the client's NDJSON consumer is unchanged), persist it,
+// and mark the generation complete. No LLM call.
+export function streamStaticContent({
+  generationId,
+  content,
+}: {
+  generationId: string;
+  content: string;
+}): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+      try {
+        send({ type: 'start', generationId });
+        send({ type: 'delta', text: content });
+        await db.insert(generationMessages).values({ generationId, role: 'assistant', content });
+        await db
+          .update(generations)
+          .set({ status: 'complete', updatedAt: new Date() })
+          .where(eq(generations.id, generationId));
+        send({ type: 'done' });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'unknown error';
+        await db
+          .update(generations)
+          .set({ status: 'failed', updatedAt: new Date() })
+          .where(eq(generations.id, generationId))
+          .catch(() => {});
+        send({ type: 'error', message });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return new Response(body, {
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
