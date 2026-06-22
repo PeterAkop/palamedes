@@ -3,6 +3,7 @@
 import {
   Calendar,
   CheckCircle2,
+  ChevronRight,
   Circle,
   ClipboardList,
   ExternalLink,
@@ -877,6 +878,218 @@ function FactProvenance({ fact, source }: { fact: CaseFactView; source?: Source 
   );
 }
 
+// --- Fact tiering (Phase 1: type + confidence heuristic) ------------------
+// A flat list reads as undifferentiated noise: "Applicant: Daniel Okafor"
+// (metadata) and "Financial requirement met" (an outcome-determining
+// conclusion) render with identical weight, so the eye can't triage. Until
+// facts carry an LLM-assigned significance, we tier them by TYPE as a first
+// cut — conclusions on top, corroborating detail below, bare metadata tucked
+// away and collapsed. A low-confidence extraction is never elevated.
+type FactTier = 'critical' | 'supporting' | 'raw';
+
+const TYPE_TIER: Record<string, FactTier> = {
+  key_fact: 'critical',
+  action_item: 'critical',
+  money: 'supporting',
+  date: 'supporting',
+  address: 'supporting',
+  party: 'raw',
+  reference: 'raw',
+  document_type: 'raw',
+};
+
+function factTier(f: CaseFactView): FactTier {
+  const base = TYPE_TIER[f.type] ?? 'raw';
+  // Don't let an uncertain extraction headline the case.
+  if (f.confidence === 'low' && base === 'critical') return 'supporting';
+  return base;
+}
+
+// A fact's inline content (date prefix / priority badge / "Label:" / value),
+// without provenance — shared by the row view and the by-source bullet view.
+function FactContent({ f }: { f: CaseFactView }) {
+  return (
+    <span>
+      {f.type === 'date' && f.factDate && (
+        <span className="font-mono text-base-content/60 mr-2">{f.factDate}</span>
+      )}
+      {f.type === 'action_item' && f.label && (
+        <span
+          className={`badge badge-xs mr-1.5 align-middle ${PRIORITY_BADGE[f.label] ?? 'badge-ghost'}`}
+        >
+          {f.label}
+        </span>
+      )}
+      {(f.type === 'party' ||
+        f.type === 'reference' ||
+        f.type === 'address' ||
+        f.type === 'money') &&
+        f.label && <span className="text-base-content/50 mr-1">{formatFactLabel(f.label)}:</span>}
+      <span className="text-base-content/90">{factDisplayValue(f)}</span>
+    </span>
+  );
+}
+
+// One fact row with its own provenance line — used by Supporting / Raw,
+// where facts are grouped by type rather than by source.
+function FactRow({ f, source }: { f: CaseFactView; source?: Source }) {
+  return (
+    <li className="py-1.5 text-sm">
+      <div className="min-w-0">
+        <FactContent f={f} />
+        <FactProvenance fact={f} source={source} />
+      </div>
+    </li>
+  );
+}
+
+// Clickable source title used as a heading when facts are grouped by source
+// (Critical tier). Mirrors FactProvenance's link behaviour: opens the file
+// for file/scan sources, else jumps to the source in the Sources tab; merged
+// facts ("N sources") stay plain text.
+function SourceHeading({
+  title,
+  sourceId,
+  merged,
+  source,
+}: {
+  title: string;
+  sourceId: string;
+  merged: boolean;
+  source?: Source;
+}) {
+  const cls = 'text-xs font-medium uppercase tracking-wide text-base-content/55 truncate';
+  if (merged || !source) {
+    return (
+      <span className={cls} title={title}>
+        {title}
+      </span>
+    );
+  }
+  if (source.hasFile) {
+    return (
+      <a
+        href={`/api/sources/${sourceId}`}
+        target="_blank"
+        rel="noreferrer"
+        className={`${cls} link link-hover hover:text-base-content/80`}
+        title={`Open ${title}`}
+      >
+        {title} ↗
+      </a>
+    );
+  }
+  return (
+    <Link
+      href={`?tab=sources#source-${sourceId}`}
+      scroll
+      className={`${cls} link link-hover hover:text-base-content/80`}
+      title={`Go to ${title}`}
+    >
+      {title}
+    </Link>
+  );
+}
+
+// Render a tier's facts grouped BY SOURCE: one heading per document with its
+// related facts as bullets underneath — so the source is named once instead
+// of repeated on every row. Used for Critical facts.
+function FactsBySource({
+  groups,
+  sourceById,
+}: {
+  groups: CaseFactGroup[];
+  sourceById: Map<string, Source>;
+}) {
+  // Flatten the tier's type-subgroups, then regroup by source (first-seen
+  // order). Merged facts ("N sources") bucket by their title.
+  const bySource = new Map<
+    string,
+    { title: string; sourceId: string; merged: boolean; facts: CaseFactView[] }
+  >();
+  for (const g of groups) {
+    for (const f of g.facts) {
+      const key = f.merged ? `merged:${f.sourceTitle}` : f.sourceId;
+      let entry = bySource.get(key);
+      if (!entry) {
+        entry = { title: f.sourceTitle, sourceId: f.sourceId, merged: !!f.merged, facts: [] };
+        bySource.set(key, entry);
+      }
+      entry.facts.push(f);
+    }
+  }
+  return (
+    <div className="space-y-3">
+      {[...bySource.values()].map((entry) => (
+        <div key={entry.merged ? `m:${entry.title}` : entry.sourceId}>
+          <SourceHeading
+            title={entry.title}
+            sourceId={entry.sourceId}
+            merged={entry.merged}
+            source={sourceById.get(entry.sourceId)}
+          />
+          <ul className="mt-1 space-y-1">
+            {entry.facts.map((f) => (
+              <li key={f.id} className="flex gap-2 text-sm">
+                <span className="text-primary/60 select-none leading-6">•</span>
+                <FactContent f={f} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// The type-subgroups within a tier (e.g. "Money", "Key dates"), each a small
+// labelled list. The tier wrapper supplies the surrounding card/accent.
+function FactGroupBlocks({
+  groups,
+  sourceById,
+  labelClass,
+}: {
+  groups: CaseFactGroup[];
+  sourceById: Map<string, Source>;
+  labelClass?: string;
+}) {
+  return (
+    <>
+      {groups.map((group) => (
+        <div key={group.type}>
+          <p className={`text-xs uppercase tracking-wide ${labelClass ?? 'text-base-content/50'}`}>
+            {group.label}
+          </p>
+          <ul className="divide-y divide-base-200">
+            {(group.type === 'action_item' ? sortByPriority(group.facts) : group.facts).map((f) => (
+              <FactRow key={f.id} f={f} source={sourceById.get(f.sourceId)} />
+            ))}
+          </ul>
+        </div>
+      ))}
+    </>
+  );
+}
+
+// Split a tier's facts into type-subgroups, preserving the source group order
+// and labels. A whole type usually lands in one tier, but low-confidence
+// demotion can split a type across tiers — so we rebuild groups per tier.
+function groupsForTier(displayGroups: CaseFactGroup[], tier: FactTier): CaseFactGroup[] {
+  const byType = new Map<string, CaseFactGroup>();
+  for (const g of displayGroups) {
+    for (const f of g.facts) {
+      if (factTier(f) !== tier) continue;
+      let grp = byType.get(g.type);
+      if (!grp) {
+        grp = { type: g.type, label: g.label, facts: [] };
+        byType.set(g.type, grp);
+      }
+      grp.facts.push(f);
+    }
+  }
+  return [...byType.values()];
+}
+
 function FactsTab({
   groups,
   evidence,
@@ -899,6 +1112,12 @@ function FactsTab({
     (g) => g.type !== 'evidence' && !(g.type === 'action_item' && hasPlan),
   );
 
+  // Tier the facts so the page has a hierarchy instead of one flat wall.
+  const critical = useMemo(() => groupsForTier(displayGroups, 'critical'), [displayGroups]);
+  const supporting = useMemo(() => groupsForTier(displayGroups, 'supporting'), [displayGroups]);
+  const raw = useMemo(() => groupsForTier(displayGroups, 'raw'), [displayGroups]);
+  const rawCount = raw.reduce((n, g) => n + g.facts.length, 0);
+
   return (
     <div className="flex flex-col gap-3">
       <EvidenceChecklistCard evidence={evidence} caseType={caseType} />
@@ -919,46 +1138,49 @@ function FactsTab({
         </p>
       )}
 
-      {displayGroups.map((group) => (
-        <div key={group.type} className="card bg-base-100 border border-base-300">
-          <div className="card-body p-4">
-            <p className="text-xs uppercase tracking-wide text-base-content/50">{group.label}</p>
-            <ul className="divide-y divide-base-200">
-              {(group.type === 'action_item' ? sortByPriority(group.facts) : group.facts).map(
-                (f) => (
-                  <li key={f.id} className="py-1.5 flex items-start justify-between gap-3 text-sm">
-                    <div className="min-w-0">
-                      <span>
-                        {f.type === 'date' && f.factDate && (
-                          <span className="font-mono text-base-content/60 mr-2">{f.factDate}</span>
-                        )}
-                        {f.type === 'action_item' && f.label && (
-                          <span
-                            className={`badge badge-xs mr-1.5 align-middle ${PRIORITY_BADGE[f.label] ?? 'badge-ghost'}`}
-                          >
-                            {f.label}
-                          </span>
-                        )}
-                        {(f.type === 'party' ||
-                          f.type === 'reference' ||
-                          f.type === 'address' ||
-                          f.type === 'money') &&
-                          f.label && (
-                            <span className="text-base-content/50 mr-1">
-                              {formatFactLabel(f.label)}:
-                            </span>
-                          )}
-                        <span className="text-base-content/90">{factDisplayValue(f)}</span>
-                      </span>
-                      <FactProvenance fact={f} source={sourceById.get(f.sourceId)} />
-                    </div>
-                  </li>
-                ),
-              )}
-            </ul>
+      {/* Critical — outcome-determining conclusions. Accented so the eye
+          lands here first. */}
+      {critical.length > 0 && (
+        <div className="card bg-primary/5 border border-primary/30">
+          <div className="card-body p-4 gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+              Critical facts
+            </p>
+            <FactsBySource groups={critical} sourceById={sourceById} />
           </div>
         </div>
-      ))}
+      )}
+
+      {/* Supporting — corroborating detail (income, dates, addresses). */}
+      {supporting.length > 0 && (
+        <div className="card bg-base-100 border border-base-300">
+          <div className="card-body p-4 gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+              Supporting facts
+            </p>
+            <FactsBySource groups={supporting} sourceById={sourceById} />
+          </div>
+        </div>
+      )}
+
+      {/* Raw — names, references, document types. Collapsed by default;
+          rarely read, but kept one click away. */}
+      {rawCount > 0 && (
+        <details className="group card bg-base-100 border border-base-300">
+          <summary className="card-body p-4 flex-row items-center gap-2 cursor-pointer list-none select-none">
+            <ChevronRight className="h-4 w-4 text-base-content/40 transition-transform group-open:rotate-90" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-base-content/50">
+              Raw facts ({rawCount})
+            </span>
+            <span className="text-xs text-base-content/40 ml-auto">
+              names, references, metadata
+            </span>
+          </summary>
+          <div className="px-4 pb-4 space-y-3">
+            <FactGroupBlocks groups={raw} sourceById={sourceById} />
+          </div>
+        </details>
+      )}
     </div>
   );
 }
