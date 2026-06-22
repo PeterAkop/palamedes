@@ -144,6 +144,10 @@ export async function ingestFileSource(args: {
   file: File;
   title?: string;
   origin?: string; // e.g. 'client-upload'
+  // Pre-read bytes. Callers that also need the bytes (e.g. to mirror the
+  // upload to the lawyer by email) read the File once and pass them here so
+  // we don't buffer the same File twice.
+  buffer?: Buffer;
 }): Promise<Source> {
   const { caseId, ownerId, file, origin } = args;
   const filename = sanitizeFilename(file.name || 'file');
@@ -163,7 +167,7 @@ export async function ingestFileSource(args: {
     .returning({ id: sources.id });
 
   try {
-    const fileBuffer = Buffer.from(await file.arrayBuffer());
+    const fileBuffer = args.buffer ?? Buffer.from(await file.arrayBuffer());
     const { url: blobUrl } = await uploadSourceFile({
       filename,
       body: fileBuffer,
