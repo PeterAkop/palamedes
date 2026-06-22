@@ -18,7 +18,7 @@ function formatBytes(n: number): string {
 export default function UploadForm({ token }: { token: string }) {
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<number | null>(null);
+  const [done, setDone] = useState<{ ingested: number; duplicates: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function addFiles(list: FileList | null) {
@@ -40,12 +40,13 @@ export default function UploadForm({ token }: { token: string }) {
       const res = await fetch(`/api/upload/${token}`, { method: 'POST', body: fd });
       const data = (await res.json().catch(() => ({}))) as {
         ingested?: number;
+        duplicates?: number;
         error?: string;
         message?: string;
       };
       if (!res.ok)
         throw new Error(data.message ?? data.error ?? 'Upload failed. Please try again.');
-      setDone(data.ingested ?? files.length);
+      setDone({ ingested: data.ingested ?? files.length, duplicates: data.duplicates ?? 0 });
       setFiles([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed. Please try again.');
@@ -61,8 +62,21 @@ export default function UploadForm({ token }: { token: string }) {
           <CheckCircle2 className="h-8 w-8 text-success" />
           <h1 className="card-title text-base">Thank you</h1>
           <p className="text-sm text-base-content/70">
-            {done} file{done === 1 ? '' : 's'} uploaded. Your solicitor has been notified.
+            {done.ingested > 0 ? (
+              <>
+                {done.ingested} file{done.ingested === 1 ? '' : 's'} uploaded. Your solicitor has
+                been notified.
+              </>
+            ) : (
+              <>No new files to upload.</>
+            )}
           </p>
+          {done.duplicates > 0 && (
+            <p className="text-xs text-base-content/50">
+              {done.duplicates} file{done.duplicates === 1 ? ' was' : 's were'} already uploaded and
+              {done.duplicates === 1 ? ' was' : ' were'} skipped.
+            </p>
+          )}
         </div>
       </div>
     );

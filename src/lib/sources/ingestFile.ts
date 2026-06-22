@@ -144,12 +144,15 @@ export async function ingestFileSource(args: {
   file: File;
   title?: string;
   origin?: string; // e.g. 'client-upload'
+  // Dedup key, stored on the source. For client uploads this is a content
+  // hash (`client-upload:<sha256>`) so re-uploading the same file is caught.
+  externalId?: string;
   // Pre-read bytes. Callers that also need the bytes (e.g. to mirror the
   // upload to the lawyer by email) read the File once and pass them here so
   // we don't buffer the same File twice.
   buffer?: Buffer;
 }): Promise<Source> {
-  const { caseId, ownerId, file, origin } = args;
+  const { caseId, ownerId, file, origin, externalId } = args;
   const filename = sanitizeFilename(file.name || 'file');
   const title = args.title?.trim() || filename;
   const kind: 'scan' | 'file' = file.type.startsWith('image/') ? 'scan' : 'file';
@@ -163,7 +166,7 @@ export async function ingestFileSource(args: {
 
   const [inserted] = await db
     .insert(sources)
-    .values({ caseId, ownerId, kind, title, metadata, status: 'processing' })
+    .values({ caseId, ownerId, kind, title, metadata, status: 'processing', externalId })
     .returning({ id: sources.id });
 
   try {
