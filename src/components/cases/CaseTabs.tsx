@@ -1158,7 +1158,7 @@ function FactsTab({
             <p className="text-xs font-semibold uppercase tracking-wide text-base-content/60">
               Supporting facts
             </p>
-            <FactGroupBlocks groups={supporting} sourceById={sourceById} />
+            <FactsBySource groups={supporting} sourceById={sourceById} />
           </div>
         </div>
       )}
