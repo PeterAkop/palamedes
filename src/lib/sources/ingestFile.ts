@@ -4,6 +4,7 @@ import { db, type Source, sources } from '@/db/db';
 import { anthropic } from '@/lib/anthropic';
 import { uploadSourceFile } from '@/lib/blob';
 import { extractAndStoreFacts } from '@/lib/facts/extract';
+import { contentHash, findCaseSourceByContentHash } from '@/lib/sources/dedup';
 import { DOCX_MIME, extractDocxText } from '@/lib/sources/docx';
 import { summarizeFile, summarizeNote } from '@/lib/sources/summarize';
 
@@ -154,10 +155,22 @@ export async function ingestFileSource(args: {
   const title = args.title?.trim() || filename;
   const kind: 'scan' | 'file' = file.type.startsWith('image/') ? 'scan' : 'file';
 
+  const fileBuffer = args.buffer ?? Buffer.from(await file.arrayBuffer());
+
+  // Content-hash dedup: if these exact bytes are already a source on this
+  // case (any origin), return that row instead of creating a duplicate.
+  const hash = contentHash(fileBuffer);
+  const dupeId = await findCaseSourceByContentHash(caseId, hash);
+  if (dupeId) {
+    const [existing] = await db.select().from(sources).where(eq(sources.id, dupeId)).limit(1);
+    if (existing) return existing;
+  }
+
   const metadata: Record<string, string> = {
     mime_type: file.type,
     size_bytes: String(file.size),
     filename,
+    content_sha256: hash,
   };
   if (origin) metadata.origin = origin;
 
@@ -167,7 +180,6 @@ export async function ingestFileSource(args: {
     .returning({ id: sources.id });
 
   try {
-    const fileBuffer = args.buffer ?? Buffer.from(await file.arrayBuffer());
     const { url: blobUrl } = await uploadSourceFile({
       filename,
       body: fileBuffer,

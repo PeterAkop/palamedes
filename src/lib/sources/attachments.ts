@@ -5,6 +5,7 @@ import { anthropic } from '@/lib/anthropic';
 import { uploadSourceFile } from '@/lib/blob';
 import { extractAndStoreFacts } from '@/lib/facts/extract';
 import type { OutlookAttachment } from '@/lib/outlook/graph';
+import { contentHash, findCaseSourceByContentHash } from '@/lib/sources/dedup';
 import { DOCX_MIME, extractDocxText } from '@/lib/sources/docx';
 import { summarizeFile, summarizeNote } from '@/lib/sources/summarize';
 
@@ -47,6 +48,15 @@ export async function ingestEmailAttachment(args: {
     .limit(1);
   if (already) return false;
 
+  const fileBuffer = Buffer.from(a.contentBytes, 'base64');
+
+  // Content-hash dedup across origins: the same file can reach a case more
+  // than one way — e.g. a client upload is mirrored to the lawyer's mailbox
+  // by the notification email, so a later pull would re-ingest it; or two
+  // emails carry the same attachment. Skip when the case already has it.
+  const hash = contentHash(fileBuffer);
+  if (await findCaseSourceByContentHash(caseId, hash)) return false;
+
   const isImage = a.contentType.startsWith('image/');
   const kind: 'scan' | 'file' = isImage ? 'scan' : 'file';
 
@@ -63,6 +73,7 @@ export async function ingestEmailAttachment(args: {
         filename: a.name,
         mime_type: a.contentType,
         size_bytes: String(a.size),
+        content_sha256: hash,
       },
       externalId,
       status: 'processing',
@@ -70,7 +81,6 @@ export async function ingestEmailAttachment(args: {
     .returning({ id: sources.id });
 
   try {
-    const fileBuffer = Buffer.from(a.contentBytes, 'base64');
     if (fileBuffer.byteLength > MAX_BYTES) {
       throw new Error(`attachment too large (${fileBuffer.byteLength} bytes, max ${MAX_BYTES})`);
     }
