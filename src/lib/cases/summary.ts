@@ -27,7 +27,7 @@ export async function regenerateCaseSummary(args: {
 
   // Refresh the consolidated action plan alongside the summary
   // (best-effort — a failure here must not block the summary).
-  await consolidateCaseActionItems(caseId, ownerId).catch((err) =>
+  await consolidateCaseActionItems(caseId, ownerId, caseType).catch((err) =>
     console.error('[action plan] consolidation failed', caseId, err),
   );
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { CheckCircle2, Eye, Mail, Pencil, Plus, Send, Sparkles } from 'lucide-react';
-import { type FormEvent, useMemo, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { revalidateCases } from '@/app/cases/actions';
 import type { Generation, SendConfig, Source } from '@/data/cases';
 import { findPlaceholders } from '@/lib/markdown';
@@ -34,6 +34,11 @@ interface Props {
   // Send configuration (feature flag + Outlook connection + recipient
   // candidates), resolved on the server.
   send: SendConfig;
+  // Auto-open the run dialog on mount — set when the Action plan deep-links
+  // to this tool (?run=<toolId>). `onAutoOpened` clears that param so a
+  // refresh doesn't reopen the dialog.
+  autoOpen?: boolean;
+  onAutoOpened?: () => void;
 }
 
 // Basic email-format check for the recipient picker.
@@ -81,6 +86,8 @@ export default function ToolRunner({
   latest,
   sources,
   send,
+  autoOpen,
+  onAutoOpened,
 }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -125,6 +132,17 @@ export default function ToolRunner({
     setError(null);
     dialogRef.current?.showModal();
   }
+
+  // Deep-link auto-open: when the Action plan routes here (?run=<toolId>),
+  // open the run dialog once and clear the param via onAutoOpened.
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpen && !autoOpenedRef.current) {
+      autoOpenedRef.current = true;
+      openDialog();
+      onAutoOpened?.();
+    }
+  });
 
   // Open the latest stored generation to read / continue. The current
   // draft is the last assistant message; generationId is set so refine

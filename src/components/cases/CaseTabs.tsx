@@ -806,16 +806,46 @@ function EvidenceChecklistCard({
   );
 }
 
-// One task row — a checkbox to toggle done, the priority badge, the text,
-// and a hover-× to dismiss. Done rows strike through.
+// Valid tool ids — so a stale suggestedToolId can't link to a missing tool.
+const TOOL_ID_SET = new Set(TOOLS.map((t) => t.id));
+
+// The Tool a task can launch, if any — drives the per-task action button.
+// request_documents always routes to Request Documents; a draft_document
+// uses the classifier's suggested tool when it's a real one.
+function taskToolAction(task: CaseTaskView): { toolId: string; label: string } | null {
+  if (task.status !== 'open') return null;
+  if (task.kind === 'request_documents') {
+    const toolId =
+      task.suggestedToolId && TOOL_ID_SET.has(task.suggestedToolId)
+        ? task.suggestedToolId
+        : 'request-documents';
+    return TOOL_ID_SET.has(toolId) ? { toolId, label: 'Request documents' } : null;
+  }
+  if (
+    task.kind === 'draft_document' &&
+    task.suggestedToolId &&
+    TOOL_ID_SET.has(task.suggestedToolId)
+  ) {
+    return { toolId: task.suggestedToolId, label: 'Draft' };
+  }
+  return null;
+}
+
+// One task row — a checkbox to toggle done, the priority badge, the text, an
+// optional action button that launches the matching Tool, and a hover-× to
+// dismiss. Done rows strike through.
 function TaskRow({
   task,
   onToggle,
   onDismiss,
+  actionLabel,
+  onAction,
 }: {
   task: CaseTaskView;
   onToggle: () => void;
   onDismiss: () => void;
+  actionLabel?: string;
+  onAction?: () => void;
 }) {
   const done = task.status === 'done';
   return (
@@ -839,6 +869,16 @@ function TaskRow({
       </span>
       {task.origin === 'manual' && (
         <span className="badge badge-ghost badge-xs shrink-0 mt-0.5">added</span>
+      )}
+      {actionLabel && onAction && (
+        <button
+          type="button"
+          onClick={onAction}
+          className="btn btn-ghost btn-xs gap-1 shrink-0 text-primary"
+        >
+          <Sparkles className="h-3 w-3" />
+          {actionLabel}
+        </button>
       )}
       <button
         type="button"
@@ -952,14 +992,21 @@ function ActionPlanCard({ caseId, tasks }: { caseId: string; tasks: CaseTaskView
           <p className="text-sm text-base-content/50 italic">No outstanding actions.</p>
         ) : (
           <ul className="mt-1 divide-y divide-base-200">
-            {open.map((t) => (
-              <TaskRow
-                key={t.id}
-                task={t}
-                onToggle={() => patch(t.id, 'done')}
-                onDismiss={() => patch(t.id, 'dismissed')}
-              />
-            ))}
+            {open.map((t) => {
+              const action = taskToolAction(t);
+              return (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  onToggle={() => patch(t.id, 'done')}
+                  onDismiss={() => patch(t.id, 'dismissed')}
+                  actionLabel={action?.label}
+                  onAction={
+                    action ? () => router.push(`?tab=tools&run=${action.toolId}`) : undefined
+                  }
+                />
+              );
+            })}
           </ul>
         )}
 
@@ -1342,6 +1389,18 @@ function FactsTab({
 // --- Tools tab ------------------------------------------------------------
 
 function ToolsTab({ caseData, send }: { caseData: Case; send: SendConfig }) {
+  // Deep-link target from the Action plan (?run=<toolId>) — auto-opens that
+  // tool's run dialog. Cleared once consumed so a refresh doesn't reopen it.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const runToolId = searchParams.get('run');
+  function clearRun() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('run');
+    const qs = params.toString();
+    router.replace(qs ? `?${qs}` : '?', { scroll: false });
+  }
+
   // Group tools by category for a tidier list as the registry grows.
   const grouped = TOOLS.reduce<Record<string, typeof TOOLS>>((acc, t) => {
     const bucket = acc[t.category] ?? [];
@@ -1407,6 +1466,8 @@ function ToolsTab({ caseData, send }: { caseData: Case; send: SendConfig }) {
                     latest={latest}
                     sources={readySources}
                     send={send}
+                    autoOpen={runToolId === t.id}
+                    onAutoOpened={clearRun}
                   />
                 </div>
               );
