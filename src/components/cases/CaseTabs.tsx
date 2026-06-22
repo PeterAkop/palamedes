@@ -651,6 +651,18 @@ function SourceRow({
                       {f.factDate}
                     </span>
                   )}
+                  {/* Typed facts (money/ref/party/address) carry a label —
+                      a bare "£148.20" or "AB123456C" is meaningless without
+                      it. Show "Label: value" as the grouped Facts view does. */}
+                  {(f.type === 'party' ||
+                    f.type === 'reference' ||
+                    f.type === 'address' ||
+                    f.type === 'money') &&
+                    f.label && (
+                      <span className="text-base-content/50 shrink-0">
+                        {formatFactLabel(f.label)}:
+                      </span>
+                    )}
                   <span className="text-base-content/80 break-words">{factDisplayValue(f)}</span>
                 </li>
               ))}
