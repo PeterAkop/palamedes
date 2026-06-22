@@ -462,6 +462,16 @@ const FACT_TYPE_SHORT: Record<string, string> = {
   document_type: 'doc',
 };
 
+// Free-text fact values come out of extraction lowercase-ish (e.g.
+// "council tax bill"); show them with a leading capital. Names, refs,
+// dates and money are left untouched (already formatted / not prose).
+const CAPITALISE_FACT_TYPES = new Set(['evidence', 'key_fact', 'action_item', 'document_type']);
+function factDisplayValue(f: CaseFactView): string {
+  const v = f.value ?? '';
+  if (!v || !CAPITALISE_FACT_TYPES.has(f.type)) return v;
+  return v.charAt(0).toUpperCase() + v.slice(1);
+}
+
 function SourceRow({ source, facts }: { source: Source; facts: CaseFactView[] }) {
   const Icon = SOURCE_KIND_ICON[source.kind];
   return (
@@ -546,7 +556,7 @@ function SourceRow({ source, facts }: { source: Source; facts: CaseFactView[] })
                       {f.factDate}
                     </span>
                   )}
-                  <span className="text-base-content/80 break-words">{f.value}</span>
+                  <span className="text-base-content/80 break-words">{factDisplayValue(f)}</span>
                 </li>
               ))}
             </ul>
@@ -742,7 +752,7 @@ function FactsTab({
                       )}
                       {(f.type === 'party' || f.type === 'reference' || f.type === 'address') &&
                         f.label && <span className="text-base-content/50 mr-1">{f.label}:</span>}
-                      <span className="text-base-content/90">{f.value}</span>
+                      <span className="text-base-content/90">{factDisplayValue(f)}</span>
                     </span>
                     <span
                       className="block text-xs text-base-content/40 truncate"
