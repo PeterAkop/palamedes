@@ -83,12 +83,10 @@ export default function CaseTabs({
     router.replace(qs ? `?${qs}` : '?', { scroll: false });
   }
 
-  const factCount = facts.reduce((n, g) => n + g.facts.length, 0);
-
   const tabs: Array<{ id: TabId; label: string; badge?: string }> = [
     { id: 'overview', label: 'Overview' },
     { id: 'sources', label: 'Sources', badge: String(caseData.sources.length) },
-    { id: 'facts', label: 'Facts', badge: String(factCount) },
+    { id: 'facts', label: 'Facts' },
     { id: 'tools', label: 'Tools' },
   ];
 
@@ -748,9 +746,9 @@ function ActionPlanCard({ items }: { items: ActionPlanItem[] }) {
           </h3>
           <span className="text-xs text-base-content/40 shrink-0">Consolidated across sources</span>
         </div>
-        <ul className="mt-1 space-y-1.5">
+        <ul className="mt-1 divide-y divide-base-200">
           {sorted.map((it) => (
-            <li key={it.text} className="flex items-start gap-2 text-sm">
+            <li key={it.text} className="flex items-start gap-2 text-sm py-1.5">
               {/* Fixed-width badge column so the text aligns across all rows. */}
               <span className="w-16 shrink-0 mt-0.5">
                 <span
@@ -794,7 +792,6 @@ function FactsTab({
         <h2 className="card-title text-base gap-2">
           <ClipboardList className="h-4 w-4 text-primary" />
           Facts
-          <span className="badge badge-ghost badge-sm">{total}</span>
         </h2>
         <span className="text-xs text-base-content/50">Auto-extracted from sources</span>
       </div>
