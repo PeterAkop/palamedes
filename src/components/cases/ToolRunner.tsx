@@ -33,9 +33,11 @@ interface Props {
   send: SendConfig;
 }
 
-// The only tool whose drafts can be emailed today (matches the API
-// route's SENDABLE_TOOL_ID).
-const SENDABLE_TOOL_ID = 'client-care-letter';
+// Basic email-format check for the recipient picker.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function isValidEmail(s: string): boolean {
+  return EMAIL_RE.test(s.trim());
+}
 
 // Map the API's error codes to lawyer-facing messages. `detail` is the
 // server's raw `message` (only set for send_failed) — surfaced so an
@@ -97,6 +99,8 @@ export default function ToolRunner({
   // the UI can show "Sent to X" without a refetch.
   const [sendOpen, setSendOpen] = useState(false);
   const [recipient, setRecipient] = useState('');
+  // True when the lawyer picked "Other…" and is typing a custom address.
+  const [isCustomRecipient, setIsCustomRecipient] = useState(false);
   const [subject, setSubject] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [sent, setSent] = useState<{ to: string; at: string; toClient: boolean } | null>(null);
@@ -274,12 +278,13 @@ export default function ToolRunner({
     }
   }
 
-  // Open the send panel, seeding the subject and (flag-on) a default
-  // recipient from the first candidate.
+  // Open the send panel, seeding the subject and a default recipient
+  // (the applicant if known, else the lawyer's own mailbox).
   function openSend() {
     setError(null);
     setSubject(`${toolLabel} — ${caseTitle}`);
-    setRecipient(send.enabled ? (send.clientCandidates[0] ?? '') : '');
+    setRecipient(send.clientCandidates[0] ?? send.mailbox ?? '');
+    setIsCustomRecipient(false);
     setSendOpen(true);
   }
 
@@ -296,6 +301,10 @@ export default function ToolRunner({
       );
       if (!ok) return;
     }
+    if (!isValidEmail(recipient)) {
+      setError('Enter a valid recipient email address.');
+      return;
+    }
     setError(null);
     setIsSending(true);
     try {
@@ -304,9 +313,7 @@ export default function ToolRunner({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subject: subject.trim() || undefined,
-          // Recipient is only honoured server-side when the flag is on;
-          // omit it otherwise so the server uses the mailbox floor.
-          recipient: send.enabled ? recipient.trim() || undefined : undefined,
+          recipient: recipient.trim(),
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -333,7 +340,9 @@ export default function ToolRunner({
     }
   }
 
-  const canSend = toolId === SENDABLE_TOOL_ID;
+  // Any tool's draft can be sent now; the recipient picker (with the
+  // lawyer's own mailbox as an option) replaces the old send-to-client flag.
+  const canSend = true;
   const hasViewable = Boolean(latest && latest.messages.length > 1);
   // What the draft body shows: live stream text once it arrives, else
   // the committed draft (dimmed while we wait for the first token).
@@ -341,6 +350,12 @@ export default function ToolRunner({
   const waiting = isStreaming && !streaming;
   // Outstanding placeholders gate the send and drive the warning banner.
   const outstandingPlaceholders = useMemo(() => findPlaceholders(draft), [draft]);
+  // Recipient options for the picker: known client addresses + the lawyer's
+  // own mailbox, deduped.
+  const knownRecipients = useMemo(
+    () => [...new Set([...send.clientCandidates, ...(send.mailbox ? [send.mailbox] : [])])],
+    [send.clientCandidates, send.mailbox],
+  );
 
   // Apply an interactive draft edit (placeholder removed / date filled):
   // update locally and persist as a manual edit so it survives a refetch.
@@ -553,32 +568,46 @@ export default function ToolRunner({
                     <>
                       <div>
                         <span className="label-text text-sm">Recipient</span>
-                        {send.enabled ? (
-                          <>
-                            <input
-                              type="email"
-                              value={recipient}
-                              onChange={(e) => setRecipient(e.target.value)}
-                              list={`recipients-${generationId}`}
-                              placeholder="client@example.com"
-                              className="input input-bordered input-sm w-full mt-1"
-                            />
-                            {send.clientCandidates.length > 0 && (
-                              <datalist id={`recipients-${generationId}`}>
-                                {send.clientCandidates.map((c) => (
-                                  <option key={c} value={c} />
-                                ))}
-                              </datalist>
-                            )}
-                          </>
-                        ) : (
-                          <p className="text-sm mt-1">
-                            {send.mailbox}{' '}
-                            <span className="text-base-content/50">
-                              — sending to your own mailbox (client sending is disabled).
-                            </span>
-                          </p>
+                        <select
+                          value={isCustomRecipient ? '__other__' : recipient}
+                          onChange={(e) => {
+                            if (e.target.value === '__other__') {
+                              setIsCustomRecipient(true);
+                              setRecipient('');
+                            } else {
+                              setIsCustomRecipient(false);
+                              setRecipient(e.target.value);
+                            }
+                          }}
+                          className="select select-bordered select-sm w-full mt-1"
+                        >
+                          {knownRecipients.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                              {c === send.mailbox ? ' — my mailbox' : ''}
+                            </option>
+                          ))}
+                          <option value="__other__">Other…</option>
+                        </select>
+                        {isCustomRecipient && (
+                          <input
+                            type="email"
+                            value={recipient}
+                            onChange={(e) => setRecipient(e.target.value)}
+                            placeholder="name@example.com"
+                            className="input input-bordered input-sm w-full mt-2"
+                          />
                         )}
+                        {recipient.trim() !== '' && !isValidEmail(recipient) && (
+                          <p className="text-xs text-error mt-1">Enter a valid email address.</p>
+                        )}
+                        {isValidEmail(recipient) &&
+                          send.mailbox &&
+                          recipient.trim().toLowerCase() === send.mailbox.toLowerCase() && (
+                            <p className="text-xs text-base-content/50 mt-1">
+                              Sending to your own mailbox — the client won't receive it.
+                            </p>
+                          )}
                       </div>
 
                       <div>
@@ -603,7 +632,7 @@ export default function ToolRunner({
                         <button
                           type="button"
                           onClick={handleSend}
-                          disabled={isSending || (send.enabled && !recipient.trim())}
+                          disabled={isSending || !isValidEmail(recipient)}
                           className="btn btn-primary btn-sm gap-1"
                         >
                           {isSending ? (

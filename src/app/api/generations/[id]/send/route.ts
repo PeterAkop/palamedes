@@ -3,7 +3,6 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { cases, db, generationMessages, generations } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
-import { sendToClientEnabled } from '@/lib/flags';
 import { renderMarkdownToHtml } from '@/lib/markdown';
 import { sendMail } from '@/lib/outlook/graph';
 import { getConnection, getValidAccessToken } from '@/lib/outlook/tokens';
@@ -12,21 +11,16 @@ import { getTool } from '@/lib/tools/registry';
 // POST /api/generations/[id]/send — email the current draft of a
 // generation via the connected Outlook mailbox (Graph /me/sendMail).
 //
-// Gated to the client-care-letter tool for now. The feature flag
-// SEND_TO_CLIENT_ENABLED is a HARD floor: when it's off (the default)
-// the recipient is forced to the lawyer's own connected mailbox, and
-// any client recipient supplied by the UI is ignored — a draft can
-// never reach a client by accident. When on, the lawyer's chosen
-// recipient is used (validated here). On success we record the send
-// (sent_at / sent_to / sent_to_client) on the generation.
+// Works for any tool. The lawyer picks the recipient in the UI (the
+// applicant, their own mailbox, or a typed address); it's validated as
+// an email here. On success we record the send (sent_at / sent_to /
+// sent_to_client) on the generation — sent_to_client is true when the
+// recipient is not the lawyer's own mailbox.
 
 export const runtime = 'nodejs';
 
-// The only tool whose drafts can be sent today.
-const SENDABLE_TOOL_ID = 'client-care-letter';
-
 const BodySchema = z.object({
-  // The lawyer's chosen recipient — only honoured when the flag is on.
+  // The lawyer's chosen recipient (required, validated as an email).
   recipient: z.string().email().optional(),
   // Editable subject from the send dialog; falls back to a derived one.
   subject: z.string().min(1).max(500).optional(),
@@ -55,9 +49,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!gen) {
     return NextResponse.json({ error: 'generation_not_found' }, { status: 404 });
   }
-  if (gen.toolId !== SENDABLE_TOOL_ID) {
-    return NextResponse.json({ error: 'tool_not_sendable' }, { status: 400 });
-  }
 
   // The current draft is the latest assistant message.
   const [latest] = await db
@@ -82,19 +73,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'outlook_not_connected' }, { status: 409 });
   }
 
-  // Recipient resolution — the heart of the feature flag.
-  const toClient = sendToClientEnabled();
-  let recipient: string;
-  if (toClient) {
-    // Flag on: use the lawyer's chosen recipient.
-    if (!parsed.data.recipient) {
-      return NextResponse.json({ error: 'recipient_required' }, { status: 400 });
-    }
-    recipient = parsed.data.recipient;
-  } else {
-    // Flag off (default): hard floor — always the connected mailbox.
-    recipient = connection.accountEmail;
+  // Recipient is the lawyer's chosen address (validated as an email above).
+  const recipient = parsed.data.recipient;
+  if (!recipient) {
+    return NextResponse.json({ error: 'recipient_required' }, { status: 400 });
   }
+  // Flag the send as "to client" when it isn't the lawyer's own mailbox.
+  const toClient = recipient.toLowerCase() !== connection.accountEmail.toLowerCase();
 
   const tool = getTool(gen.toolId);
   const subject = parsed.data.subject?.trim() || `${tool?.label ?? 'Letter'} — ${gen.caseTitle}`;

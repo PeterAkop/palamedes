@@ -99,9 +99,11 @@ export interface Case {
 // recipient from `clientCandidates` (client email + grabbed email
 // senders) or type their own.
 export interface SendConfig {
-  enabled: boolean;
   outlookConnected: boolean;
+  // The lawyer's connected mailbox — offered as a recipient ("send to
+  // myself") and used to flag a send as going to the client vs not.
   mailbox?: string;
+  // Known client / correspondence addresses, offered in the recipient picker.
   clientCandidates: string[];
 }
 
