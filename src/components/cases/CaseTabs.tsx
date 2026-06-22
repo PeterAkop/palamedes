@@ -751,10 +751,13 @@ function ActionPlanCard({ items }: { items: ActionPlanItem[] }) {
         <ul className="mt-1 space-y-1.5">
           {sorted.map((it) => (
             <li key={it.text} className="flex items-start gap-2 text-sm">
-              <span
-                className={`badge badge-xs mt-0.5 shrink-0 ${PRIORITY_BADGE[it.priority ?? ''] ?? 'badge-ghost'}`}
-              >
-                {it.priority ?? '—'}
+              {/* Fixed-width badge column so the text aligns across all rows. */}
+              <span className="w-16 shrink-0 mt-0.5">
+                <span
+                  className={`badge badge-xs ${PRIORITY_BADGE[it.priority ?? ''] ?? 'badge-ghost'}`}
+                >
+                  {it.priority ?? '—'}
+                </span>
               </span>
               <span className="text-base-content/80">{it.text}</span>
             </li>
