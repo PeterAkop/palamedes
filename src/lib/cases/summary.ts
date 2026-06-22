@@ -1,6 +1,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { cases, db, sources } from '@/db/db';
 import { formatCaseFactsForPrompt, getCaseFacts } from '@/lib/facts/case';
+import { consolidateCaseActionItems } from '@/lib/facts/consolidate';
 import { summarizeCase, summarizeCaseFromFacts } from '@/lib/sources/summarize';
 
 // Regenerate a case's AI summary and write the cases.ai_summary* columns.
@@ -23,6 +24,12 @@ export async function regenerateCaseSummary(args: {
   ownerId: string;
 }): Promise<RegeneratedSummary | null> {
   const { caseId, caseTitle, caseType, ownerId } = args;
+
+  // Refresh the consolidated action plan alongside the summary
+  // (best-effort — a failure here must not block the summary).
+  await consolidateCaseActionItems(caseId, ownerId).catch((err) =>
+    console.error('[action plan] consolidation failed', caseId, err),
+  );
 
   const caseFacts = await getCaseFacts(caseId, ownerId);
 

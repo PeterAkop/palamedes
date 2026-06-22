@@ -78,6 +78,18 @@ export const moneySchema = z.object({
   confidence: confidenceSchema.optional(),
 });
 
+export const prioritySchema = z.enum(['high', 'medium', 'low']);
+export type Priority = z.infer<typeof prioritySchema>;
+
+export const actionItemSchema = z.object({
+  text: z.string().min(1),
+  // How important this follow-up is: 'high' = blocks the application or is
+  // legally required / time-critical; 'medium' = needed but not blocking;
+  // 'low' = clarification / nice-to-have.
+  priority: prioritySchema.optional(),
+});
+export type ActionItem = z.infer<typeof actionItemSchema>;
+
 export const sourceFactsSchema = z.object({
   parties: z.array(partySchema).default([]),
   key_dates: z.array(keyDateSchema).default([]),
@@ -89,8 +101,9 @@ export const sourceFactsSchema = z.object({
   evidence_types: z.array(z.string().min(1)).default([]),
   // Atomic factual statements that don't fit the structured buckets.
   key_facts: z.array(z.string().min(1)).default([]),
-  // Follow-ups / missing-evidence hints for the solicitor.
-  action_items: z.array(z.string().min(1)).default([]),
+  // Follow-ups / missing-evidence hints for the solicitor, each with a
+  // priority so the lawyer can see what matters most at a glance.
+  action_items: z.array(actionItemSchema).default([]),
   // For file/scan sources: what the document is (refusal letter,
   // payslip, marriage certificate, …). Omitted for text sources.
   document_type: z.string().min(1).optional(),

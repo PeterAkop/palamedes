@@ -111,6 +111,11 @@ export const cases = pgTable(
     aiSummary: text('ai_summary'),
     aiSummaryModel: text('ai_summary_model'),
     aiSummaryGeneratedAt: timestamp('ai_summary_generated_at', { withTimezone: true }),
+    // Consolidated action plan — an LLM merges the per-source action_item
+    // facts into one deduplicated, prioritised list (Pass 2). jsonb array
+    // of { text, priority }. Regenerated alongside the case summary.
+    actionPlanJson: jsonb('action_plan_json').$type<Array<{ text: string; priority?: string }>>(),
+    actionPlanGeneratedAt: timestamp('action_plan_generated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -16,9 +16,11 @@ import {
   Sparkles,
   Wrench,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
+  type ActionPlanItem,
   CASE_STATUS_LABEL,
   CASE_TYPE_LABEL,
   type Case,
@@ -32,6 +34,7 @@ import {
   type Source,
   type SourceKind,
 } from '@/data/cases';
+import { formatMoneyDisplay } from '@/lib/format';
 import { TOOLS } from '@/lib/tools/registry';
 import AddNoteButton from './AddNoteButton';
 import CaseReferences from './CaseReferences';
@@ -55,6 +58,8 @@ interface Props {
   factsBySource: Record<string, CaseFactView[]>;
   // Suggested evidence checklist for the case's route, marked against facts.
   evidence: EvidenceCheck[];
+  // Consolidated, de-duplicated action plan (LLM-merged across sources).
+  actionPlan: ActionPlanItem[];
 }
 
 export default function CaseTabs({
@@ -64,6 +69,7 @@ export default function CaseTabs({
   facts,
   factsBySource,
   evidence,
+  actionPlan,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -79,12 +85,10 @@ export default function CaseTabs({
     router.replace(qs ? `?${qs}` : '?', { scroll: false });
   }
 
-  const factCount = facts.reduce((n, g) => n + g.facts.length, 0);
-
   const tabs: Array<{ id: TabId; label: string; badge?: string }> = [
     { id: 'overview', label: 'Overview' },
     { id: 'sources', label: 'Sources', badge: String(caseData.sources.length) },
-    { id: 'facts', label: 'Facts', badge: String(factCount) },
+    { id: 'facts', label: 'Facts' },
     { id: 'tools', label: 'Tools' },
   ];
 
@@ -120,7 +124,13 @@ export default function CaseTabs({
                   />
                 )}
                 {t.id === 'facts' && (
-                  <FactsTab groups={facts} evidence={evidence} caseType={caseData.caseType} />
+                  <FactsTab
+                    groups={facts}
+                    evidence={evidence}
+                    caseType={caseData.caseType}
+                    actionPlan={actionPlan}
+                    sources={caseData.sources}
+                  />
                 )}
                 {t.id === 'tools' && <ToolsTab caseData={caseData} send={send} />}
               </div>
@@ -287,6 +297,31 @@ function SourcesTab({
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [page, setPage] = useState(1);
+  // Source jumped to via a fact's provenance link (#source-<id>). We open
+  // it, clear filters and page to it so it's actually visible.
+  const [targetId, setTargetId] = useState<string | null>(null);
+
+  // Read the #source-<id> hash on mount and whenever it changes.
+  useEffect(() => {
+    const readHash = () => {
+      const m = window.location.hash.match(/^#source-(.+)$/);
+      setTargetId(m ? m[1] : null);
+    };
+    readHash();
+    window.addEventListener('hashchange', readHash);
+    return () => window.removeEventListener('hashchange', readHash);
+  }, []);
+
+  // Clear filters and page to the target so its row renders, then scroll.
+  useEffect(() => {
+    if (!targetId) return;
+    const idx = sources.findIndex((s) => s.id === targetId);
+    if (idx === -1) return;
+    setKind('all');
+    setFrom('');
+    setTo('');
+    setPage(Math.floor(idx / SOURCES_PAGE_SIZE) + 1);
+  }, [targetId, sources]);
 
   // Kinds actually present on this case — drives the type dropdown so
   // we don't offer empty filters.
@@ -414,7 +449,12 @@ function SourcesTab({
             <>
               <div className="space-y-2">
                 {pageItems.map((src) => (
-                  <SourceRow key={src.id} source={src} facts={factsBySource[src.id] ?? []} />
+                  <SourceRow
+                    key={src.id}
+                    source={src}
+                    facts={factsBySource[src.id] ?? []}
+                    defaultOpen={src.id === targetId}
+                  />
                 ))}
               </div>
 
@@ -462,10 +502,65 @@ const FACT_TYPE_SHORT: Record<string, string> = {
   document_type: 'doc',
 };
 
-function SourceRow({ source, facts }: { source: Source; facts: CaseFactView[] }) {
+// Free-text fact values come out of extraction lowercase-ish (e.g.
+// "council tax bill"); show them with a leading capital. Names, refs,
+// dates and money are left untouched (already formatted / not prose).
+const CAPITALISE_FACT_TYPES = new Set(['evidence', 'key_fact', 'action_item', 'document_type']);
+function factDisplayValue(f: CaseFactView): string {
+  const v = f.value ?? '';
+  if (f.type === 'money') return formatMoneyDisplay(v);
+  if (!v || !CAPITALISE_FACT_TYPES.has(f.type)) return v;
+  return v.charAt(0).toUpperCase() + v.slice(1);
+}
+
+// Display a fact's key/label (party role, reference kind, money label, …)
+// with a leading capital and underscores as spaces: "home_office" ->
+// "Home office", "applicant" -> "Applicant".
+function formatFactLabel(label: string): string {
+  const t = label.replace(/_/g, ' ');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+// Action-item priority (stored in CaseFactView.label) → badge colour +
+// sort order, so the lawyer sees the high-priority follow-ups first.
+const PRIORITY_BADGE: Record<string, string> = {
+  high: 'badge-error',
+  medium: 'badge-warning',
+  low: 'badge-ghost',
+};
+const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+function sortByPriority(facts: CaseFactView[]): CaseFactView[] {
+  return [...facts].sort(
+    (a, b) => (PRIORITY_RANK[a.label ?? ''] ?? 3) - (PRIORITY_RANK[b.label ?? ''] ?? 3),
+  );
+}
+
+function SourceRow({
+  source,
+  facts,
+  defaultOpen,
+}: {
+  source: Source;
+  facts: CaseFactView[];
+  defaultOpen?: boolean;
+}) {
   const Icon = SOURCE_KIND_ICON[source.kind];
+  const [open, setOpen] = useState(defaultOpen ?? false);
+  // When navigated to via a provenance link, open it and scroll to it.
+  useEffect(() => {
+    if (!defaultOpen) return;
+    setOpen(true);
+    document
+      .getElementById(`source-${source.id}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [defaultOpen, source.id]);
   return (
-    <details className="collapse collapse-arrow bg-base-100 border border-base-300">
+    <details
+      id={`source-${source.id}`}
+      open={open}
+      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+      className="collapse collapse-arrow bg-base-100 border border-base-300 scroll-mt-20"
+    >
       <summary className="collapse-title !py-3 min-h-0 pr-10 cursor-pointer">
         <div className="flex items-start gap-3">
           <Icon className="h-4 w-4 shrink-0 text-base-content/50 mt-1" />
@@ -546,7 +641,7 @@ function SourceRow({ source, facts }: { source: Source; facts: CaseFactView[] })
                       {f.factDate}
                     </span>
                   )}
-                  <span className="text-base-content/80 break-words">{f.value}</span>
+                  <span className="text-base-content/80 break-words">{factDisplayValue(f)}</span>
                 </li>
               ))}
             </ul>
@@ -697,26 +792,112 @@ function EvidenceChecklistCard({
   );
 }
 
+// Consolidated action plan — the per-source action items merged across
+// sources into one de-duplicated list (Pass 2), sorted by priority.
+function ActionPlanCard({ items }: { items: ActionPlanItem[] }) {
+  if (items.length === 0) return null;
+  const sorted = [...items].sort(
+    (a, b) => (PRIORITY_RANK[a.priority ?? ''] ?? 3) - (PRIORITY_RANK[b.priority ?? ''] ?? 3),
+  );
+  return (
+    <div className="card bg-base-100 border border-base-300">
+      <div className="card-body p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="card-title text-sm gap-2">
+            <ClipboardList className="h-4 w-4 text-primary" />
+            Action plan
+            <span className="badge badge-ghost badge-sm">{items.length}</span>
+          </h3>
+          <span className="text-xs text-base-content/40 shrink-0">Consolidated across sources</span>
+        </div>
+        <ul className="mt-1 divide-y divide-base-200">
+          {sorted.map((it) => (
+            <li key={it.text} className="flex items-start gap-2 text-sm py-1.5">
+              {/* Fixed-width badge column so the text aligns across all rows. */}
+              <span className="w-16 shrink-0 mt-0.5">
+                <span
+                  className={`badge badge-xs ${PRIORITY_BADGE[it.priority ?? ''] ?? 'badge-ghost'}`}
+                >
+                  {it.priority ?? '—'}
+                </span>
+              </span>
+              <span className="text-base-content/80">{it.text}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// Provenance line under a fact: links to the source it came from — opens
+// the document for file/scan sources, otherwise jumps to that source in
+// the Sources tab. Merged facts ("N sources") stay plain text.
+function FactProvenance({ fact, source }: { fact: CaseFactView; source?: Source }) {
+  const cls = 'block text-xs text-base-content/40 truncate';
+  if (fact.merged || !source) {
+    return (
+      <span className={cls} title={fact.sourceTitle}>
+        from {fact.sourceTitle}
+      </span>
+    );
+  }
+  if (source.hasFile) {
+    return (
+      <a
+        href={`/api/sources/${fact.sourceId}`}
+        target="_blank"
+        rel="noreferrer"
+        className={`${cls} link link-hover hover:text-base-content/70`}
+        title={`Open ${fact.sourceTitle}`}
+      >
+        from {fact.sourceTitle} ↗
+      </a>
+    );
+  }
+  return (
+    <Link
+      href={`?tab=sources#source-${fact.sourceId}`}
+      scroll
+      className={`${cls} link link-hover hover:text-base-content/70`}
+      title={`Go to ${fact.sourceTitle}`}
+    >
+      from {fact.sourceTitle}
+    </Link>
+  );
+}
+
 function FactsTab({
   groups,
   evidence,
   caseType,
+  actionPlan,
+  sources,
 }: {
   groups: CaseFactGroup[];
   evidence: EvidenceCheck[];
   caseType: CaseType;
+  actionPlan: ActionPlanItem[];
+  sources: Source[];
 }) {
   const total = groups.reduce((n, g) => n + g.facts.length, 0);
+  const hasPlan = actionPlan.length > 0;
+  const sourceById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
+  // Drop the standalone Evidence group (the checklist above covers it), and
+  // the raw per-source action_item group when a consolidated plan exists.
+  const displayGroups = groups.filter(
+    (g) => g.type !== 'evidence' && !(g.type === 'action_item' && hasPlan),
+  );
 
   return (
     <div className="flex flex-col gap-3">
       <EvidenceChecklistCard evidence={evidence} caseType={caseType} />
+      {hasPlan && <ActionPlanCard items={actionPlan} />}
 
       <div className="flex items-center justify-between">
         <h2 className="card-title text-base gap-2">
           <ClipboardList className="h-4 w-4 text-primary" />
           Facts
-          <span className="badge badge-ghost badge-sm">{total}</span>
         </h2>
         <span className="text-xs text-base-content/50">Auto-extracted from sources</span>
       </div>
@@ -728,36 +909,42 @@ function FactsTab({
         </p>
       )}
 
-      {groups.map((group) => (
+      {displayGroups.map((group) => (
         <div key={group.type} className="card bg-base-100 border border-base-300">
           <div className="card-body p-4">
             <p className="text-xs uppercase tracking-wide text-base-content/50">{group.label}</p>
             <ul className="divide-y divide-base-200">
-              {group.facts.map((f) => (
-                <li key={f.id} className="py-1.5 flex items-start justify-between gap-3 text-sm">
-                  <div className="min-w-0">
-                    <span>
-                      {f.type === 'date' && f.factDate && (
-                        <span className="font-mono text-base-content/60 mr-2">{f.factDate}</span>
-                      )}
-                      {(f.type === 'party' || f.type === 'reference' || f.type === 'address') &&
-                        f.label && <span className="text-base-content/50 mr-1">{f.label}:</span>}
-                      <span className="text-base-content/90">{f.value}</span>
-                    </span>
-                    <span
-                      className="block text-xs text-base-content/40 truncate"
-                      title={f.sourceTitle}
-                    >
-                      from {f.sourceTitle}
-                    </span>
-                  </div>
-                  {f.confidence && f.confidence !== 'high' && (
-                    <span className="badge badge-ghost badge-xs shrink-0 mt-0.5">
-                      {f.confidence}
-                    </span>
-                  )}
-                </li>
-              ))}
+              {(group.type === 'action_item' ? sortByPriority(group.facts) : group.facts).map(
+                (f) => (
+                  <li key={f.id} className="py-1.5 flex items-start justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <span>
+                        {f.type === 'date' && f.factDate && (
+                          <span className="font-mono text-base-content/60 mr-2">{f.factDate}</span>
+                        )}
+                        {f.type === 'action_item' && f.label && (
+                          <span
+                            className={`badge badge-xs mr-1.5 align-middle ${PRIORITY_BADGE[f.label] ?? 'badge-ghost'}`}
+                          >
+                            {f.label}
+                          </span>
+                        )}
+                        {(f.type === 'party' ||
+                          f.type === 'reference' ||
+                          f.type === 'address' ||
+                          f.type === 'money') &&
+                          f.label && (
+                            <span className="text-base-content/50 mr-1">
+                              {formatFactLabel(f.label)}:
+                            </span>
+                          )}
+                        <span className="text-base-content/90">{factDisplayValue(f)}</span>
+                      </span>
+                      <FactProvenance fact={f} source={sourceById.get(f.sourceId)} />
+                    </div>
+                  </li>
+                ),
+              )}
             </ul>
           </div>
         </div>

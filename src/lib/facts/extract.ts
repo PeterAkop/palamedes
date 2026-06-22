@@ -1,9 +1,10 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { and, eq } from 'drizzle-orm';
 import type { NewFact, Source } from '@/db/db';
-import { db, facts as factsTable, sources } from '@/db/db';
+import { cases, clients, db, facts as factsTable, sources } from '@/db/db';
 import { anthropic, MODELS } from '@/lib/anthropic';
 import { type SourceFacts, sourceFactsSchema } from '@/lib/facts/schema';
+import { formatCurrency } from '@/lib/format';
 
 // Pass 1 — fact extraction. Convert one unstructured source into a
 // validated `SourceFacts` object, then persist it as normalized rows in
@@ -26,6 +27,9 @@ Rules:
 - Dates may be partial — use 'YYYY-MM-DD' when a full date is given, 'YYYY-MM' or 'YYYY' when only the month or year is known.
 - Set a per-fact confidence ('high' | 'medium' | 'low') reflecting how unambiguous the fact is in the source. Use 'low' when a value is implied or hard to read.
 - Put atomic factual statements that don't fit a structured field into key_facts. Put follow-ups or missing-evidence observations into action_items.
+- For each action_item set a priority: 'high' if it blocks the application or is legally required / time-critical, 'medium' if needed but not blocking, 'low' for clarifications or nice-to-haves.
+- Only record people who are genuinely parties to the immigration matter (applicant, sponsor, dependants/children, a Home Office official, the legal representative). Do NOT record the email sender, the instructing solicitor, or incidental contacts (people merely cc'd or mentioned in passing) as parties.
+- When a "Case context" block is provided, use it to assign party roles: the named client is the applicant; classify other genuine parties by their relationship to the case (sponsor, child, official, representative). Use 'other' only when a clear party's role truly cannot be determined — prefer to omit an incidental name rather than record it as 'other'.
 - You MUST call the record_case_facts tool exactly once. Do not reply with prose. If the source contains no extractable facts, call the tool with empty arrays.`;
 
 // JSON Schema for the tool. Mirrors sourceFactsSchema (src/lib/facts/
@@ -154,8 +158,21 @@ const FACTS_TOOL = {
       },
       action_items: {
         type: 'array',
-        description: 'Follow-ups or missing-evidence observations for the solicitor.',
-        items: { type: 'string' },
+        description:
+          'Follow-ups or missing-evidence observations for the solicitor, each with a priority.',
+        items: {
+          type: 'object',
+          properties: {
+            text: { type: 'string' },
+            priority: {
+              type: 'string',
+              enum: ['high', 'medium', 'low'],
+              description:
+                "'high' = blocks the application / legally required / time-critical; 'medium' = needed but not blocking; 'low' = clarification or nice-to-have.",
+            },
+          },
+          required: ['text'],
+        },
       },
       document_type: {
         type: 'string',
@@ -186,7 +203,32 @@ export interface ExtractResult {
   model: string;
 }
 
-function buildUserContent(input: ExtractInput): Anthropic.Beta.BetaContentBlockParam[] {
+// The case this source belongs to — lets the extractor resolve party
+// roles (the named client is the applicant) instead of defaulting to
+// 'other'. Optional so extraction still works without it.
+export interface ExtractionCaseContext {
+  caseTitle: string;
+  caseType: string;
+  clientName: string;
+}
+
+function caseContextBlock(ctx: ExtractionCaseContext): string {
+  return [
+    'Case context — use this to assign party roles correctly:',
+    `- Case: ${ctx.caseTitle} (type: ${ctx.caseType})`,
+    `- Client / applicant on this case: ${ctx.clientName}`,
+    "The named client is the applicant. Classify other people by their role in the case; use 'other' only when a role genuinely cannot be determined.",
+    '',
+  ].join('\n');
+}
+
+function buildUserContent(
+  input: ExtractInput,
+  caseContext?: ExtractionCaseContext,
+): Anthropic.Beta.BetaContentBlockParam[] {
+  const blocks: Anthropic.Beta.BetaContentBlockParam[] = [];
+  if (caseContext) blocks.push({ type: 'text', text: caseContextBlock(caseContext) });
+
   if (input.mode === 'file') {
     const isImage = input.mimeType.startsWith('image/');
     const fileBlock: Anthropic.Beta.BetaContentBlockParam = isImage
@@ -196,13 +238,11 @@ function buildUserContent(input: ExtractInput): Anthropic.Beta.BetaContentBlockP
           source: { type: 'file', file_id: input.anthropicFileId },
           title: input.title,
         };
-    return [
-      fileBlock,
-      {
-        type: 'text',
-        text: `Document title set by the lawyer: ${input.title}. Extract its facts.`,
-      },
-    ];
+    blocks.push(fileBlock, {
+      type: 'text',
+      text: `Document title set by the lawyer: ${input.title}. Extract its facts.`,
+    });
+    return blocks;
   }
 
   const channel =
@@ -211,13 +251,17 @@ function buildUserContent(input: ExtractInput): Anthropic.Beta.BetaContentBlockP
   if (input.from) header.push(`From: ${input.from}`);
   if (input.subject) header.push(`Subject: ${input.subject}`);
   if (input.fromPhone) header.push(`From phone: ${input.fromPhone}`);
-  return [{ type: 'text', text: `${header.join('\n')}\n\nContent:\n${input.body}` }];
+  blocks.push({ type: 'text', text: `${header.join('\n')}\n\nContent:\n${input.body}` });
+  return blocks;
 }
 
 // Run extraction. Forces the tool, validates with Zod, retries on an
 // invalid/absent tool call. Throws if every attempt fails.
-export async function extractSourceFacts(input: ExtractInput): Promise<ExtractResult> {
-  const content = buildUserContent(input);
+export async function extractSourceFacts(
+  input: ExtractInput,
+  caseContext?: ExtractionCaseContext,
+): Promise<ExtractResult> {
+  const content = buildUserContent(input, caseContext);
   const betas = input.mode === 'file' ? [FILES_BETA] : undefined;
 
   let lastError: Error | null = null;
@@ -310,7 +354,7 @@ function sourceFactsToRows(source: SourceRef, f: SourceFacts): NewFact[] {
       type: 'money',
       data: m,
       label: m.label,
-      value: `${m.amount} ${m.currency}`,
+      value: formatCurrency(m.amount, m.currency),
       confidence: m.confidence,
     });
   for (const e of f.evidence_types)
@@ -318,7 +362,13 @@ function sourceFactsToRows(source: SourceRef, f: SourceFacts): NewFact[] {
   for (const k of f.key_facts)
     rows.push({ ...base, type: 'key_fact', data: { text: k }, value: k });
   for (const ai of f.action_items)
-    rows.push({ ...base, type: 'action_item', data: { text: ai }, value: ai });
+    rows.push({
+      ...base,
+      type: 'action_item',
+      data: ai,
+      value: ai.text,
+      label: ai.priority ?? null,
+    });
   if (f.document_type)
     rows.push({
       ...base,
@@ -353,13 +403,40 @@ export async function persistSourceFacts(
     .where(eq(sources.id, source.id));
 }
 
+// Load the case context (title/type/client) for the extractor so it can
+// resolve party roles. Owner-scoped; returns undefined if not found.
+async function loadCaseContext(
+  caseId: string,
+  ownerId: string,
+): Promise<ExtractionCaseContext | undefined> {
+  const [row] = await db
+    .select({
+      title: cases.title,
+      caseType: cases.caseType,
+      first: clients.firstName,
+      last: clients.lastName,
+    })
+    .from(cases)
+    .innerJoin(clients, eq(cases.clientId, clients.id))
+    .where(and(eq(cases.id, caseId), eq(cases.ownerId, ownerId)))
+    .limit(1);
+  if (!row) return undefined;
+  return {
+    caseTitle: row.title,
+    caseType: row.caseType,
+    clientName: `${row.first} ${row.last}`.trim(),
+  };
+}
+
 // Best-effort extract + persist for an ingestion path. Never throws —
 // facts are an enrichment, so a failure here must not fail the source
 // (which is still summarised and usable). Leaves facts_extracted_at null
-// so a later retry can pick it up.
+// so a later retry can pick it up. Loads the case context so the
+// extractor can assign party roles correctly.
 export async function extractAndStoreFacts(source: SourceRef, input: ExtractInput): Promise<void> {
   try {
-    const { facts, model } = await extractSourceFacts(input);
+    const caseContext = await loadCaseContext(source.caseId, source.ownerId);
+    const { facts, model } = await extractSourceFacts(input, caseContext);
     await persistSourceFacts(source, facts, model);
   } catch (err) {
     console.error('[facts extraction failed]', source.id, err);

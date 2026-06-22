@@ -175,6 +175,9 @@ export interface CaseFactView {
   confidence: string | null;
   sourceId: string;
   sourceTitle: string;
+  // True when this row was merged across several sources — provenance is
+  // then "N sources" and shouldn't link to a single document.
+  merged?: boolean;
 }
 
 // Facts grouped by category for the Facts tab (e.g. "Key dates").
@@ -182,6 +185,13 @@ export interface CaseFactGroup {
   type: FactType;
   label: string;
   facts: CaseFactView[];
+}
+
+// One item of the consolidated, de-duplicated action plan for a case
+// (an LLM merges the per-source action_item facts into this list).
+export interface ActionPlanItem {
+  text: string;
+  priority?: string;
 }
 
 // One row of the suggested evidence checklist for a case's route.
