@@ -4,6 +4,7 @@ import type { NewFact, Source } from '@/db/db';
 import { cases, clients, db, facts as factsTable, sources } from '@/db/db';
 import { anthropic, MODELS } from '@/lib/anthropic';
 import { type SourceFacts, sourceFactsSchema } from '@/lib/facts/schema';
+import { formatCurrency } from '@/lib/format';
 
 // Pass 1 — fact extraction. Convert one unstructured source into a
 // validated `SourceFacts` object, then persist it as normalized rows in
@@ -352,7 +353,7 @@ function sourceFactsToRows(source: SourceRef, f: SourceFacts): NewFact[] {
       type: 'money',
       data: m,
       label: m.label,
-      value: `${m.amount} ${m.currency}`,
+      value: formatCurrency(m.amount, m.currency),
       confidence: m.confidence,
     });
   for (const e of f.evidence_types)

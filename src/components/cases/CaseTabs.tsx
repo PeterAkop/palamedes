@@ -33,6 +33,7 @@ import {
   type Source,
   type SourceKind,
 } from '@/data/cases';
+import { formatMoneyDisplay } from '@/lib/format';
 import { TOOLS } from '@/lib/tools/registry';
 import AddNoteButton from './AddNoteButton';
 import CaseReferences from './CaseReferences';
@@ -475,6 +476,7 @@ const FACT_TYPE_SHORT: Record<string, string> = {
 const CAPITALISE_FACT_TYPES = new Set(['evidence', 'key_fact', 'action_item', 'document_type']);
 function factDisplayValue(f: CaseFactView): string {
   const v = f.value ?? '';
+  if (f.type === 'money') return formatMoneyDisplay(v);
   if (!v || !CAPITALISE_FACT_TYPES.has(f.type)) return v;
   return v.charAt(0).toUpperCase() + v.slice(1);
 }
@@ -823,7 +825,10 @@ function FactsTab({
                             {f.label}
                           </span>
                         )}
-                        {(f.type === 'party' || f.type === 'reference' || f.type === 'address') &&
+                        {(f.type === 'party' ||
+                          f.type === 'reference' ||
+                          f.type === 'address' ||
+                          f.type === 'money') &&
                           f.label && <span className="text-base-content/50 mr-1">{f.label}:</span>}
                         <span className="text-base-content/90">{factDisplayValue(f)}</span>
                       </span>
