@@ -551,6 +551,15 @@ export default function ToolRunner({
                 </div>
               )}
 
+              {/* AI disclaimer — chrome only, never part of the draft body
+                  (so it isn't included when the letter/email is sent). */}
+              {!isEditing && draft && !isStreaming && (
+                <p className="flex items-center gap-1.5 text-xs text-base-content/50 italic">
+                  <Sparkles className="h-3 w-3 text-primary/60 shrink-0" />
+                  AI-generated content — solicitor review required before use.
+                </p>
+              )}
+
               {/* Sent confirmation — mirrors the persisted send record. */}
               {sent && !sendOpen && (
                 <div className="flex items-center gap-2 text-xs text-success">
