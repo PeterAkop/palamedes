@@ -24,7 +24,9 @@ export function renderMarkdownToHtml(md: string): string {
   let para: string[] = [];
   const flushPara = () => {
     if (para.length) {
-      out.push(`<p>${inline(para.join(' '))}</p>`);
+      // Join with <br> so intentional single line breaks (address blocks,
+      // reference lines, signatures) stack vertically rather than collapse.
+      out.push(`<p>${para.map(inline).join('<br />')}</p>`);
       para = [];
     }
   };

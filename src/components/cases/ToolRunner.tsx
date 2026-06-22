@@ -4,7 +4,8 @@ import { CheckCircle2, Eye, Mail, Pencil, Plus, Send, Sparkles } from 'lucide-re
 import { type FormEvent, useMemo, useRef, useState } from 'react';
 import { revalidateCases } from '@/app/cases/actions';
 import type { Generation, SendConfig, Source } from '@/data/cases';
-import { findPlaceholders, highlightPlaceholders, renderMarkdownToHtml } from '@/lib/markdown';
+import { findPlaceholders } from '@/lib/markdown';
+import DraftView from './DraftView';
 
 // Per-tool runner modal. Generates an Opus draft (streamed), then lets
 // the lawyer refine it by chat or edit it by hand. The draft is a
@@ -338,10 +339,20 @@ export default function ToolRunner({
   // the committed draft (dimmed while we wait for the first token).
   const bodyText = isStreaming && streaming ? streaming : draft;
   const waiting = isStreaming && !streaming;
-  // Render the committed draft (markdown → HTML) with placeholders
-  // highlighted; outstanding placeholders also gate the send.
-  const draftHtml = useMemo(() => highlightPlaceholders(renderMarkdownToHtml(draft)), [draft]);
+  // Outstanding placeholders gate the send and drive the warning banner.
   const outstandingPlaceholders = useMemo(() => findPlaceholders(draft), [draft]);
+
+  // Apply an interactive draft edit (placeholder removed / date filled):
+  // update locally and persist as a manual edit so it survives a refetch.
+  async function applyContentChange(next: string) {
+    setDraft(next);
+    if (!generationId) return;
+    await fetch(`/api/generations/${generationId}/edit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: next }),
+    }).catch(() => {});
+  }
 
   return (
     <>
@@ -492,8 +503,11 @@ export default function ToolRunner({
                       {bodyText || <span className="loading loading-dots loading-sm" />}
                     </p>
                   ) : draft ? (
-                    // biome-ignore lint/security/noDangerouslySetInnerHtml: our own markdown render, HTML-escaped in renderMarkdownToHtml
-                    <div dangerouslySetInnerHTML={{ __html: draftHtml }} />
+                    <DraftView
+                      content={draft}
+                      interactive={!isSending}
+                      onChange={applyContentChange}
+                    />
                   ) : (
                     <span className="loading loading-dots loading-sm" />
                   )}
