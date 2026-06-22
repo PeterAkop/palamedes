@@ -1,11 +1,13 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { cases, clients, db, sources } from '@/db/db';
+import { formatCaseFactsForPrompt, getCaseFacts } from '@/lib/facts/case';
 import { getFirmDetails } from '@/lib/firm/queries';
 import type { ToolContext } from '@/lib/tools/registry';
 
 // Build the ToolContext for a generation: the case (title/type/AI
-// summary), the client's name, and the selected source summaries. All
-// owner-scoped. Returns null if the case isn't found / not owned.
+// summary), the client's name, the structured Facts Store, and the
+// selected source summaries. All owner-scoped. Returns null if the case
+// isn't found / not owned.
 //
 // If `sourceIds` is omitted we fall back to every `ready` source on the
 // case — a sensible default ("use everything") for a first draft.
@@ -51,6 +53,16 @@ export async function buildToolContext(
     .filter((s): s is { title: string; kind: string; aiSummary: string } => Boolean(s.aiSummary))
     .map((s) => ({ title: s.title, kind: s.kind, aiSummary: s.aiSummary }));
 
+  // Structured facts (the Facts Store) — the authoritative grounding for
+  // the draft. Scoped to the selected sources when the lawyer picked a
+  // subset (mirrors the source-summary scoping above), else the whole case.
+  const allFacts = await getCaseFacts(caseId, ownerId);
+  const scopedFacts =
+    sourceIds && sourceIds.length > 0
+      ? allFacts.filter((f) => sourceIds.includes(f.sourceId))
+      : allFacts;
+  const caseFacts = scopedFacts.length > 0 ? formatCaseFactsForPrompt(scopedFacts) : undefined;
+
   const firm = await getFirmDetails(ownerId);
 
   return {
@@ -58,6 +70,7 @@ export async function buildToolContext(
     caseType: c.caseType,
     clientName: `${c.clientFirst} ${c.clientLast}`,
     caseSummary: c.aiSummary ?? undefined,
+    caseFacts,
     ourReference: c.ourReference ?? undefined,
     yourReference: c.yourReference ?? undefined,
     sourceSummaries,

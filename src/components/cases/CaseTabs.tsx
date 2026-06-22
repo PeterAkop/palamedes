@@ -3,6 +3,7 @@
 import {
   Calendar,
   CheckCircle2,
+  Circle,
   ClipboardList,
   ExternalLink,
   Files,
@@ -22,7 +23,10 @@ import {
   CASE_TYPE_LABEL,
   type Case,
   type CaseFactGroup,
+  type CaseFactView,
+  type CaseType,
   type Client,
+  type EvidenceCheck,
   type SendConfig,
   SOURCE_KIND_LABEL,
   type Source,
@@ -47,9 +51,20 @@ interface Props {
   client: Client | undefined;
   send: SendConfig;
   facts: CaseFactGroup[];
+  // Each source's own extracted facts, keyed by source id.
+  factsBySource: Record<string, CaseFactView[]>;
+  // Suggested evidence checklist for the case's route, marked against facts.
+  evidence: EvidenceCheck[];
 }
 
-export default function CaseTabs({ caseData, client, send, facts }: Props) {
+export default function CaseTabs({
+  caseData,
+  client,
+  send,
+  facts,
+  factsBySource,
+  evidence,
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawTab = searchParams.get('tab');
@@ -98,9 +113,15 @@ export default function CaseTabs({ caseData, client, send, facts }: Props) {
               <div role="tabpanel" className="tab-content bg-base-100 border-base-300 p-4 sm:p-6">
                 {t.id === 'overview' && <OverviewTab caseData={caseData} client={client} />}
                 {t.id === 'sources' && (
-                  <SourcesTab caseId={caseData.id} sources={caseData.sources} />
+                  <SourcesTab
+                    caseId={caseData.id}
+                    sources={caseData.sources}
+                    factsBySource={factsBySource}
+                  />
                 )}
-                {t.id === 'facts' && <FactsTab groups={facts} />}
+                {t.id === 'facts' && (
+                  <FactsTab groups={facts} evidence={evidence} caseType={caseData.caseType} />
+                )}
                 {t.id === 'tools' && <ToolsTab caseData={caseData} send={send} />}
               </div>
             )}
@@ -253,7 +274,15 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
 
 const SOURCES_PAGE_SIZE = 10;
 
-function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) {
+function SourcesTab({
+  caseId,
+  sources,
+  factsBySource,
+}: {
+  caseId: string;
+  sources: Source[];
+  factsBySource: Record<string, CaseFactView[]>;
+}) {
   const [kind, setKind] = useState<SourceKind | 'all'>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -385,7 +414,7 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
             <>
               <div className="space-y-2">
                 {pageItems.map((src) => (
-                  <SourceRow key={src.id} source={src} />
+                  <SourceRow key={src.id} source={src} facts={factsBySource[src.id] ?? []} />
                 ))}
               </div>
 
@@ -420,7 +449,20 @@ function SourcesTab({ caseId, sources }: { caseId: string; sources: Source[] }) 
   );
 }
 
-function SourceRow({ source }: { source: Source }) {
+// Short tags for the per-source fact badges (compact vs the Facts tab labels).
+const FACT_TYPE_SHORT: Record<string, string> = {
+  party: 'party',
+  date: 'date',
+  address: 'address',
+  reference: 'ref',
+  money: 'money',
+  evidence: 'evidence',
+  key_fact: 'fact',
+  action_item: 'action',
+  document_type: 'doc',
+};
+
+function SourceRow({ source, facts }: { source: Source; facts: CaseFactView[] }) {
   const Icon = SOURCE_KIND_ICON[source.kind];
   return (
     <details className="collapse collapse-arrow bg-base-100 border border-base-300">
@@ -486,6 +528,30 @@ function SourceRow({ source }: { source: Source }) {
               : 'No AI summary for this source.'}
           </p>
         ) : null}
+
+        {/* Structured facts extracted from this source (Pass 1). */}
+        {facts.length > 0 && (
+          <div className="rounded-md border border-base-200 bg-base-200/40 p-3">
+            <p className="text-xs uppercase tracking-wide text-base-content/50 mb-1.5 flex items-center gap-1">
+              <ClipboardList className="h-3 w-3 text-primary" /> Extracted facts ({facts.length})
+            </p>
+            <ul className="space-y-1">
+              {facts.map((f) => (
+                <li key={f.id} className="flex items-baseline gap-1.5">
+                  <span className="badge badge-ghost badge-xs shrink-0">
+                    {FACT_TYPE_SHORT[f.type] ?? f.type}
+                  </span>
+                  {f.type === 'date' && f.factDate && (
+                    <span className="font-mono text-xs text-base-content/60 shrink-0">
+                      {f.factDate}
+                    </span>
+                  )}
+                  <span className="text-base-content/80 break-words">{f.value}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </details>
   );
@@ -584,23 +650,68 @@ function formatShortDate(iso: string): string {
 // Read-only view of the structured facts extracted from the case's
 // sources (Pass 1). Grouped by category, each fact carries its source as
 // provenance and a confidence badge when below 'high'.
-function FactsTab({ groups }: { groups: CaseFactGroup[] }) {
-  const total = groups.reduce((n, g) => n + g.facts.length, 0);
-
-  if (total === 0) {
-    return (
-      <div className="text-center py-10 text-base-content/50">
-        <ClipboardList className="h-8 w-8 mx-auto mb-2 text-base-content/30" />
-        <p>
-          No facts extracted yet. Facts are pulled from each source automatically as it&apos;s added
-          and analysed.
+// Suggested evidence checklist for the case's route, marked present/absent
+// against the extracted facts. Decision-support, not legal advice.
+function EvidenceChecklistCard({
+  evidence,
+  caseType,
+}: {
+  evidence: EvidenceCheck[];
+  caseType: CaseType;
+}) {
+  if (evidence.length === 0) return null;
+  const present = evidence.filter((e) => e.present).length;
+  return (
+    <div className="card bg-base-100 border border-base-300">
+      <div className="card-body p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="card-title text-sm gap-2">
+            <ClipboardList className="h-4 w-4 text-primary" />
+            Evidence checklist — {CASE_TYPE_LABEL[caseType]}
+          </h3>
+          <span className="text-xs text-base-content/50 shrink-0">
+            {present}/{evidence.length} evidenced
+          </span>
+        </div>
+        <p className="text-xs text-base-content/40 -mt-1">
+          Suggested evidence for this route, matched against extracted facts. Review against the
+          current Immigration Rules — not legal advice.
         </p>
+        <ul className="mt-1 space-y-1">
+          {evidence.map((e) => (
+            <li key={e.label} className="flex items-start gap-2 text-sm">
+              {e.present ? (
+                <CheckCircle2 className="h-4 w-4 text-success shrink-0 mt-0.5" />
+              ) : (
+                <Circle className="h-4 w-4 text-base-content/30 shrink-0 mt-0.5" />
+              )}
+              <span className={e.present ? 'text-base-content/80' : 'text-base-content/60'}>
+                {e.label}
+                {!e.present && <span className="text-warning text-xs ml-2">missing</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
+function FactsTab({
+  groups,
+  evidence,
+  caseType,
+}: {
+  groups: CaseFactGroup[];
+  evidence: EvidenceCheck[];
+  caseType: CaseType;
+}) {
+  const total = groups.reduce((n, g) => n + g.facts.length, 0);
 
   return (
     <div className="flex flex-col gap-3">
+      <EvidenceChecklistCard evidence={evidence} caseType={caseType} />
+
       <div className="flex items-center justify-between">
         <h2 className="card-title text-base gap-2">
           <ClipboardList className="h-4 w-4 text-primary" />
@@ -609,6 +720,13 @@ function FactsTab({ groups }: { groups: CaseFactGroup[] }) {
         </h2>
         <span className="text-xs text-base-content/50">Auto-extracted from sources</span>
       </div>
+
+      {total === 0 && (
+        <p className="text-sm text-base-content/50 italic px-1">
+          No facts extracted yet. Facts are pulled from each source automatically as it&apos;s added
+          and analysed.
+        </p>
+      )}
 
       {groups.map((group) => (
         <div key={group.type} className="card bg-base-100 border border-base-300">
