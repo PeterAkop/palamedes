@@ -26,6 +26,7 @@ Rules:
 - Dates may be partial — use 'YYYY-MM-DD' when a full date is given, 'YYYY-MM' or 'YYYY' when only the month or year is known.
 - Set a per-fact confidence ('high' | 'medium' | 'low') reflecting how unambiguous the fact is in the source. Use 'low' when a value is implied or hard to read.
 - Put atomic factual statements that don't fit a structured field into key_facts. Put follow-ups or missing-evidence observations into action_items.
+- For each action_item set a priority: 'high' if it blocks the application or is legally required / time-critical, 'medium' if needed but not blocking, 'low' for clarifications or nice-to-haves.
 - When a "Case context" block is provided, use it to assign party roles: the named client is the applicant; classify other people by their relationship to the case (sponsor, child, official, representative). Use 'other' only when a party's role genuinely cannot be determined.
 - You MUST call the record_case_facts tool exactly once. Do not reply with prose. If the source contains no extractable facts, call the tool with empty arrays.`;
 
@@ -155,8 +156,21 @@ const FACTS_TOOL = {
       },
       action_items: {
         type: 'array',
-        description: 'Follow-ups or missing-evidence observations for the solicitor.',
-        items: { type: 'string' },
+        description:
+          'Follow-ups or missing-evidence observations for the solicitor, each with a priority.',
+        items: {
+          type: 'object',
+          properties: {
+            text: { type: 'string' },
+            priority: {
+              type: 'string',
+              enum: ['high', 'medium', 'low'],
+              description:
+                "'high' = blocks the application / legally required / time-critical; 'medium' = needed but not blocking; 'low' = clarification or nice-to-have.",
+            },
+          },
+          required: ['text'],
+        },
       },
       document_type: {
         type: 'string',
@@ -346,7 +360,13 @@ function sourceFactsToRows(source: SourceRef, f: SourceFacts): NewFact[] {
   for (const k of f.key_facts)
     rows.push({ ...base, type: 'key_fact', data: { text: k }, value: k });
   for (const ai of f.action_items)
-    rows.push({ ...base, type: 'action_item', data: { text: ai }, value: ai });
+    rows.push({
+      ...base,
+      type: 'action_item',
+      data: ai,
+      value: ai.text,
+      label: ai.priority ?? null,
+    });
   if (f.document_type)
     rows.push({
       ...base,

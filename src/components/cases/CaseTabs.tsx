@@ -472,6 +472,20 @@ function factDisplayValue(f: CaseFactView): string {
   return v.charAt(0).toUpperCase() + v.slice(1);
 }
 
+// Action-item priority (stored in CaseFactView.label) → badge colour +
+// sort order, so the lawyer sees the high-priority follow-ups first.
+const PRIORITY_BADGE: Record<string, string> = {
+  high: 'badge-error',
+  medium: 'badge-warning',
+  low: 'badge-ghost',
+};
+const PRIORITY_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+function sortByPriority(facts: CaseFactView[]): CaseFactView[] {
+  return [...facts].sort(
+    (a, b) => (PRIORITY_RANK[a.label ?? ''] ?? 3) - (PRIORITY_RANK[b.label ?? ''] ?? 3),
+  );
+}
+
 function SourceRow({ source, facts }: { source: Source; facts: CaseFactView[] }) {
   const Icon = SOURCE_KIND_ICON[source.kind];
   return (
@@ -743,31 +757,40 @@ function FactsTab({
           <div className="card-body p-4">
             <p className="text-xs uppercase tracking-wide text-base-content/50">{group.label}</p>
             <ul className="divide-y divide-base-200">
-              {group.facts.map((f) => (
-                <li key={f.id} className="py-1.5 flex items-start justify-between gap-3 text-sm">
-                  <div className="min-w-0">
-                    <span>
-                      {f.type === 'date' && f.factDate && (
-                        <span className="font-mono text-base-content/60 mr-2">{f.factDate}</span>
-                      )}
-                      {(f.type === 'party' || f.type === 'reference' || f.type === 'address') &&
-                        f.label && <span className="text-base-content/50 mr-1">{f.label}:</span>}
-                      <span className="text-base-content/90">{factDisplayValue(f)}</span>
-                    </span>
-                    <span
-                      className="block text-xs text-base-content/40 truncate"
-                      title={f.sourceTitle}
-                    >
-                      from {f.sourceTitle}
-                    </span>
-                  </div>
-                  {f.confidence && f.confidence !== 'high' && (
-                    <span className="badge badge-ghost badge-xs shrink-0 mt-0.5">
-                      {f.confidence}
-                    </span>
-                  )}
-                </li>
-              ))}
+              {(group.type === 'action_item' ? sortByPriority(group.facts) : group.facts).map(
+                (f) => (
+                  <li key={f.id} className="py-1.5 flex items-start justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <span>
+                        {f.type === 'date' && f.factDate && (
+                          <span className="font-mono text-base-content/60 mr-2">{f.factDate}</span>
+                        )}
+                        {f.type === 'action_item' && f.label && (
+                          <span
+                            className={`badge badge-xs mr-1.5 align-middle ${PRIORITY_BADGE[f.label] ?? 'badge-ghost'}`}
+                          >
+                            {f.label}
+                          </span>
+                        )}
+                        {(f.type === 'party' || f.type === 'reference' || f.type === 'address') &&
+                          f.label && <span className="text-base-content/50 mr-1">{f.label}:</span>}
+                        <span className="text-base-content/90">{factDisplayValue(f)}</span>
+                      </span>
+                      <span
+                        className="block text-xs text-base-content/40 truncate"
+                        title={f.sourceTitle}
+                      >
+                        from {f.sourceTitle}
+                      </span>
+                    </div>
+                    {f.confidence && f.confidence !== 'high' && (
+                      <span className="badge badge-ghost badge-xs shrink-0 mt-0.5">
+                        {f.confidence}
+                      </span>
+                    )}
+                  </li>
+                ),
+              )}
             </ul>
           </div>
         </div>
