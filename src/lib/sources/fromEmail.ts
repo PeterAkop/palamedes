@@ -1,12 +1,12 @@
 import { and, eq } from 'drizzle-orm';
 import { db, type Source, sources } from '@/db/db';
-import { extractAndStoreFacts } from '@/lib/facts/extract';
+import { enqueueSourceAnalysis } from '@/lib/inngest/enqueue';
 import { getMessageById, listMessageAttachments, type OutlookMessage } from '@/lib/outlook/graph';
 import { ingestEmailAttachment } from '@/lib/sources/attachments';
-import { summarizePastedMessage } from '@/lib/sources/summarize';
 
 // Create an `email` source from an Outlook message: insert (`processing`)
-// → Haiku summary → `ready` (or `failed` with the error). Tagged
+// then hand the AI analysis (summary + fact extraction) to the queue, so a
+// pull of many emails returns fast instead of blocking on inference. Tagged
 // `origin: 'outlook'` with the Graph message id as `external_id` for
 // dedup. Used by the per-case Outlook pull (`pull-outlook`).
 //
@@ -51,34 +51,10 @@ export async function createEmailSourceFromOutlook(args: {
     })
     .returning({ id: sources.id });
 
-  try {
-    const { summary, model } = await summarizePastedMessage({
-      kind: 'email',
-      title: m.subject,
-      body: m.bodyText,
-      from,
-      subject: m.subject,
-    });
-    await db
-      .update(sources)
-      .set({ status: 'ready', aiSummary: summary, aiSummaryModel: model, updatedAt: new Date() })
-      .where(eq(sources.id, inserted.id));
-
-    // Pass 1 — extract structured facts from the email body (best-effort).
-    await extractAndStoreFacts(
-      { id: inserted.id, caseId, ownerId },
-      { mode: 'text', kind: 'email', title: m.subject, body: m.bodyText, from, subject: m.subject },
-    );
-  } catch (err) {
-    await db
-      .update(sources)
-      .set({
-        status: 'failed',
-        errorMessage: err instanceof Error ? err.message : 'summary failed',
-        updatedAt: new Date(),
-      })
-      .where(eq(sources.id, inserted.id));
-  }
+  // Hand off analysis (summary + fact extraction) to the queue — the row is
+  // already stored with its full body, so this returns immediately and the
+  // worker fills in the summary/facts (flips processing → ready/failed).
+  await enqueueSourceAnalysis(inserted.id, ownerId);
 
   // Ingest file attachments as their own sources. Inline images (e.g.
   // signature logos) are skipped. A failure here is swallowed per

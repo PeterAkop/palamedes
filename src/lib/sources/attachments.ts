@@ -3,11 +3,10 @@ import { and, eq } from 'drizzle-orm';
 import { db, sources } from '@/db/db';
 import { anthropic } from '@/lib/anthropic';
 import { uploadSourceFile } from '@/lib/blob';
-import { extractAndStoreFacts } from '@/lib/facts/extract';
+import { enqueueSourceAnalysis } from '@/lib/inngest/enqueue';
 import type { OutlookAttachment } from '@/lib/outlook/graph';
 import { contentHash, findCaseSourceByContentHash } from '@/lib/sources/dedup';
-import { DOCX_MIME, extractDocxText } from '@/lib/sources/docx';
-import { summarizeFile, summarizeNote } from '@/lib/sources/summarize';
+import { DOCX_MIME } from '@/lib/sources/docx';
 
 // Ingest one email file-attachment as a `file`/`scan` source — the same
 // flow as a manual upload (Vercel Blob + Anthropic Files API + Haiku),
@@ -59,6 +58,63 @@ export async function ingestEmailAttachment(args: {
 
   const isImage = a.contentType.startsWith('image/');
   const kind: 'scan' | 'file' = isImage ? 'scan' : 'file';
+  // Types we'll analyse (summary + facts) — the rest are stored without one.
+  const analyzable = SUMMARIZABLE_MIME.has(a.contentType) || a.contentType === DOCX_MIME;
+  const baseMeta = {
+    origin: 'outlook',
+    attachment_of: emailExternalId,
+    filename: a.name,
+    mime_type: a.contentType,
+    size_bytes: String(a.size),
+    content_sha256: hash,
+  };
+
+  // Oversized → record a visible failed source, don't process.
+  if (fileBuffer.byteLength > MAX_BYTES) {
+    await db.insert(sources).values({
+      caseId,
+      ownerId,
+      kind,
+      title: a.name,
+      metadata: baseMeta,
+      externalId,
+      status: 'failed',
+      errorMessage: `attachment too large (${fileBuffer.byteLength} bytes, max ${MAX_BYTES})`,
+    });
+    return true;
+  }
+
+  // Store half (fast): archive bytes to Blob, and upload Claude-readable
+  // types to the Anthropic Files API so the queued analysis has the file id.
+  // No inference here — summary + facts run on the queue (reprocessSource).
+  let blobUrl: string;
+  let anthropicFileId: string | null = null;
+  try {
+    ({ url: blobUrl } = await uploadSourceFile({
+      filename: a.name,
+      body: fileBuffer,
+      contentType: a.contentType,
+    }));
+    if (SUMMARIZABLE_MIME.has(a.contentType)) {
+      const f = await anthropic.beta.files.upload({
+        file: await toFile(fileBuffer, a.name, { type: a.contentType }),
+        betas: ['files-api-2025-04-14'],
+      });
+      anthropicFileId = f.id;
+    }
+  } catch (err) {
+    await db.insert(sources).values({
+      caseId,
+      ownerId,
+      kind,
+      title: a.name,
+      metadata: baseMeta,
+      externalId,
+      status: 'failed',
+      errorMessage: err instanceof Error ? err.message : 'attachment store failed',
+    });
+    return true;
+  }
 
   const [inserted] = await db
     .insert(sources)
@@ -67,96 +123,14 @@ export async function ingestEmailAttachment(args: {
       ownerId,
       kind,
       title: a.name,
-      metadata: {
-        origin: 'outlook',
-        attachment_of: emailExternalId,
-        filename: a.name,
-        mime_type: a.contentType,
-        size_bytes: String(a.size),
-        content_sha256: hash,
-      },
+      metadata: baseMeta,
       externalId,
-      status: 'processing',
+      blobPath: blobUrl,
+      anthropicFileId,
+      status: analyzable ? 'processing' : 'ready',
     })
     .returning({ id: sources.id });
 
-  try {
-    if (fileBuffer.byteLength > MAX_BYTES) {
-      throw new Error(`attachment too large (${fileBuffer.byteLength} bytes, max ${MAX_BYTES})`);
-    }
-
-    // Always archive the raw bytes to Blob (private).
-    const { url: blobUrl } = await uploadSourceFile({
-      filename: a.name,
-      body: fileBuffer,
-      contentType: a.contentType,
-    });
-
-    // Summarise the types Claude can read; store the rest without a
-    // summary rather than failing the whole attachment.
-    if (SUMMARIZABLE_MIME.has(a.contentType)) {
-      const anthropicFile = await anthropic.beta.files.upload({
-        file: await toFile(fileBuffer, a.name, { type: a.contentType }),
-        betas: ['files-api-2025-04-14'],
-      });
-      const { summary, model } = await summarizeFile({
-        title: a.name,
-        mimeType: a.contentType,
-        anthropicFileId: anthropicFile.id,
-      });
-      await db
-        .update(sources)
-        .set({
-          status: 'ready',
-          blobPath: blobUrl,
-          anthropicFileId: anthropicFile.id,
-          aiSummary: summary,
-          aiSummaryModel: model,
-          updatedAt: new Date(),
-        })
-        .where(eq(sources.id, inserted.id));
-      // Pass 1 — extract structured facts from the attachment (best-effort).
-      await extractAndStoreFacts(
-        { id: inserted.id, caseId, ownerId },
-        { mode: 'file', title: a.name, mimeType: a.contentType, anthropicFileId: anthropicFile.id },
-      );
-    } else if (a.contentType === DOCX_MIME) {
-      // .docx → extract text locally, then summarise as text. Empty
-      // extraction (image-only / unparsable doc) stays summary-less.
-      const text = extractDocxText(fileBuffer);
-      const update: Partial<typeof sources.$inferInsert> = {
-        status: 'ready',
-        blobPath: blobUrl,
-        updatedAt: new Date(),
-      };
-      if (text.trim()) {
-        const { summary, model } = await summarizeNote({ title: a.name, body: text });
-        update.aiSummary = summary;
-        update.aiSummaryModel = model;
-      }
-      await db.update(sources).set(update).where(eq(sources.id, inserted.id));
-      // Pass 1 — extract structured facts from the extracted docx text.
-      if (text.trim()) {
-        await extractAndStoreFacts(
-          { id: inserted.id, caseId, ownerId },
-          { mode: 'text', kind: 'note', title: a.name, body: text },
-        );
-      }
-    } else {
-      await db
-        .update(sources)
-        .set({ status: 'ready', blobPath: blobUrl, updatedAt: new Date() })
-        .where(eq(sources.id, inserted.id));
-    }
-  } catch (err) {
-    await db
-      .update(sources)
-      .set({
-        status: 'failed',
-        errorMessage: err instanceof Error ? err.message : 'attachment ingest failed',
-        updatedAt: new Date(),
-      })
-      .where(eq(sources.id, inserted.id));
-  }
+  if (analyzable) await enqueueSourceAnalysis(inserted.id, ownerId);
   return true;
 }

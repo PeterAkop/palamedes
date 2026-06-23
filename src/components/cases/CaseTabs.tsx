@@ -299,6 +299,7 @@ function SourcesTab({
   sources: Source[];
   factsBySource: Record<string, CaseFactView[]>;
 }) {
+  const router = useRouter();
   const [kind, setKind] = useState<SourceKind | 'all'>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -306,6 +307,16 @@ function SourcesTab({
   // Source jumped to via a fact's provenance link (#source-<id>). We open
   // it, clear filters and page to it so it's actually visible.
   const [targetId, setTargetId] = useState<string | null>(null);
+
+  // Analysis runs async on the queue, so sources land as `processing` and
+  // flip to `ready` behind the request. Poll while any are still processing
+  // so the list updates live (the interval clears once everything settles).
+  const anyProcessing = sources.some((s) => s.status === 'processing');
+  useEffect(() => {
+    if (!anyProcessing) return;
+    const id = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(id);
+  }, [anyProcessing, router]);
 
   // Read the #source-<id> hash on mount and whenever it changes.
   useEffect(() => {
