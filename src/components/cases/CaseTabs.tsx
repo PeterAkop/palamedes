@@ -1547,7 +1547,7 @@ function ToolsTab({ caseData, send }: { caseData: Case; send: SendConfig }) {
       ))}
 
       <p className="text-xs text-base-content/50 mt-4">
-        Each tool drafts with Opus from the case summary and selected sources; refine the draft by
+        Each tool drafts with AI from the case summary and selected sources; refine the draft by
         chat in the run dialog.
       </p>
     </div>

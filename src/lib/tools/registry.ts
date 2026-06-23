@@ -1,4 +1,4 @@
-// In-code tool registry for the Tools tab. Each tool is an Opus-backed
+// In-code tool registry for the Tools tab. Each tool is a Sonnet-backed
 // document generator: a system prompt that sets the drafting role, plus
 // a buildUserPrompt that folds the case context into the request — the
 // structured Facts Store (authoritative for concrete details) plus the

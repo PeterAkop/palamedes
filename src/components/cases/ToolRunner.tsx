@@ -416,7 +416,7 @@ export default function ToolRunner({
           {phase === 'config' ? (
             <div className="mt-4 space-y-3">
               <p className="text-sm text-base-content/60">
-                Opus drafts this document from the case summary and the sources you select. You can
+                AI drafts this document from the case summary and the sources you select. You can
                 refine or edit it afterwards.
               </p>
 

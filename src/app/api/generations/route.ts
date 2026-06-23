@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
 
   const [gen] = await db
     .insert(generations)
-    .values({ caseId, ownerId, toolId, version, status: 'running', model: MODELS.opus })
+    .values({ caseId, ownerId, toolId, version, status: 'running', model: MODELS.sonnet })
     .returning({ id: generations.id });
 
   // Template tools (e.g. Request Documents) build their content directly —

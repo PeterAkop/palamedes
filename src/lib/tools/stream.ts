@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, generationMessages, generations } from '@/db/db';
 import { anthropic, MODELS } from '@/lib/anthropic';
 
-// Shared Opus streaming helper for the Tools tab. Streams a draft (or
+// Shared streaming helper for the Tools tab (Sonnet 4.6). Streams a draft (or
 // a refinement) as NDJSON — one JSON object per line:
 //   {"type":"start","generationId":"…"}  emitted first so the client
 //                                         can drive the refine route
@@ -17,9 +17,9 @@ import { anthropic, MODELS } from '@/lib/anthropic';
 // both the generate route and the refine route — the only difference
 // between them is the `messages` history passed in.
 //
-// Opus 4.8 params: adaptive thinking + high effort, streamed (max_tokens
+// Sonnet 4.6 params: adaptive thinking + high effort, streamed (max_tokens
 // well above the non-streaming timeout threshold). No temperature /
-// budget_tokens — both removed on 4.8.
+// budget_tokens on the 4.x family.
 
 interface StreamArgs {
   generationId: string;
@@ -37,7 +37,7 @@ export function streamGeneration({ generationId, system, messages }: StreamArgs)
       try {
         send({ type: 'start', generationId });
         const ms = anthropic.messages.stream({
-          model: MODELS.opus,
+          model: MODELS.sonnet,
           max_tokens: 64000,
           thinking: { type: 'adaptive' },
           output_config: { effort: 'high' },
@@ -52,7 +52,7 @@ export function streamGeneration({ generationId, system, messages }: StreamArgs)
           }
         }
 
-        if (!full.trim()) throw new Error('Opus returned an empty draft');
+        if (!full.trim()) throw new Error('The model returned an empty draft');
 
         // Token usage for this turn — accumulated onto the generation
         // row (this helper runs once per draft and once per refine).
