@@ -88,6 +88,12 @@ export default function CaseSidebar({ sidebarItems, clients }: Props) {
                       <span>{item.caseTitle}</span>
                     </span>
                   </span>
+                  {item.processing > 0 && (
+                    <span
+                      className="loading loading-spinner loading-xs text-primary shrink-0"
+                      title={`Analysing ${item.processing} source${item.processing === 1 ? '' : 's'}`}
+                    />
+                  )}
                   <StatusDot status={item.caseStatus} />
                 </Link>
               </li>

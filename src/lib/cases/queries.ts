@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, count, eq } from 'drizzle-orm';
 import type {
   CaseStatus,
   CaseType,
@@ -9,7 +9,7 @@ import type {
   Generation as ViewGeneration,
   Source as ViewSource,
 } from '@/data/cases';
-import { cases, clients, db } from '@/db/db';
+import { cases, clients, db, sources } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
 import { listGenerationsForCase } from '@/lib/generations/queries';
 import { listSourcesForCase } from '@/lib/sources/queries';
@@ -44,11 +44,21 @@ export async function listSidebarItems(): Promise<SidebarItem[]> {
     .where(eq(cases.ownerId, ownerId))
     .orderBy(asc(cases.createdAt));
 
+  // Per-case count of sources still being analysed (queue in flight), so the
+  // sidebar can flag which cases are mid-analysis.
+  const processingRows = await db
+    .select({ caseId: sources.caseId, n: count() })
+    .from(sources)
+    .where(and(eq(sources.ownerId, ownerId), eq(sources.status, 'processing')))
+    .groupBy(sources.caseId);
+  const processingByCase = new Map(processingRows.map((r) => [r.caseId, Number(r.n)]));
+
   return rows.map((r) => ({
     caseId: r.caseId,
     caseTitle: r.caseTitle,
     caseStatus: r.caseStatus as CaseStatus,
     clientSurname: r.clientSurname,
+    processing: processingByCase.get(r.caseId) ?? 0,
   }));
 }
 
