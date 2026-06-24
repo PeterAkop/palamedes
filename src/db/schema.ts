@@ -208,6 +208,13 @@ export const sources = pgTable(
     factsModel: text('facts_model'),
     factsExtractedAt: timestamp('facts_extracted_at', { withTimezone: true }),
 
+    // Haiku token usage for analysing this source (summary + extraction),
+    // accumulated across runs so spend can be reported per source / lawyer /
+    // day from the DB — the parallel of generations.input/output_tokens for
+    // the Opus tool drafts. Input includes cache reads/writes.
+    analysisInputTokens: integer('analysis_input_tokens').notNull().default(0),
+    analysisOutputTokens: integer('analysis_output_tokens').notNull().default(0),
+
     // Storage references — populate only for file/scan kinds.
     // `blob_path` is the Vercel Blob URL (private); `anthropic_file_id`
     // is what we pass to the Anthropic Files API for Claude inputs.

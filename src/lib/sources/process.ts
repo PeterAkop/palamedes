@@ -1,5 +1,6 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { db, type Source, sources } from '@/db/db';
+import { addUsage, type TokenUsage } from '@/lib/anthropic';
 import { getSourceFileStream } from '@/lib/blob';
 import { type ExtractInput, extractAndStoreFacts, extractInputFromRow } from '@/lib/facts/extract';
 import { DOCX_MIME, extractDocxText } from '@/lib/sources/docx';
@@ -80,11 +81,18 @@ export async function reprocessSource(row: Source): Promise<Source> {
     .where(eq(sources.id, row.id));
 
   let updated: Source;
+  let usage: TokenUsage;
   try {
-    const { summary, model } = await summarizeSource(row);
+    const result = await summarizeSource(row);
+    usage = result.usage;
     [updated] = await db
       .update(sources)
-      .set({ status: 'ready', aiSummary: summary, aiSummaryModel: model, updatedAt: new Date() })
+      .set({
+        status: 'ready',
+        aiSummary: result.summary,
+        aiSummaryModel: result.model,
+        updatedAt: new Date(),
+      })
       .where(eq(sources.id, row.id))
       .returning();
   } catch (err) {
@@ -103,8 +111,22 @@ export async function reprocessSource(row: Source): Promise<Source> {
   // Pass 1 — re-extract facts (best-effort; the source is already ready).
   const input = await buildExtractInput(row);
   if (input) {
-    await extractAndStoreFacts({ id: row.id, caseId: row.caseId, ownerId: row.ownerId }, input);
+    const extractUsage = await extractAndStoreFacts(
+      { id: row.id, caseId: row.caseId, ownerId: row.ownerId },
+      input,
+    );
+    usage = addUsage(usage, extractUsage);
   }
+
+  // Record Haiku spend for this analysis (accumulated across runs).
+  await db
+    .update(sources)
+    .set({
+      analysisInputTokens: sql`${sources.analysisInputTokens} + ${usage.inputTokens}`,
+      analysisOutputTokens: sql`${sources.analysisOutputTokens} + ${usage.outputTokens}`,
+    })
+    .where(eq(sources.id, row.id));
+
   return updated;
 }
 

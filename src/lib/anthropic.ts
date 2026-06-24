@@ -31,3 +31,38 @@ export const MODELS = {
 } as const;
 
 export type ModelKey = keyof typeof MODELS;
+
+// Token accounting. We record input/output tokens per source analysis (and
+// per tool run) so spend can be reported from the DB. Input counts cached
+// reads + cache writes too, so the figure reflects what's actually billed.
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export function tokenUsage(
+  usage:
+    | {
+        input_tokens?: number | null;
+        output_tokens?: number | null;
+        cache_read_input_tokens?: number | null;
+        cache_creation_input_tokens?: number | null;
+      }
+    | null
+    | undefined,
+): TokenUsage {
+  return {
+    inputTokens:
+      (usage?.input_tokens ?? 0) +
+      (usage?.cache_read_input_tokens ?? 0) +
+      (usage?.cache_creation_input_tokens ?? 0),
+    outputTokens: usage?.output_tokens ?? 0,
+  };
+}
+
+export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+  };
+}

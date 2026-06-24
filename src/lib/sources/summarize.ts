@@ -1,5 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { anthropic, MODELS } from '@/lib/anthropic';
+import { anthropic, MODELS, type TokenUsage, tokenUsage } from '@/lib/anthropic';
 
 // Haiku-backed source summarizers. Server-only — called from API
 // routes after a source row is inserted; the returned summary lands
@@ -39,6 +39,7 @@ export interface SummarizeNoteInput {
 export interface SummarizeResult {
   summary: string;
   model: string;
+  usage: TokenUsage;
 }
 
 export async function summarizeNote(input: SummarizeNoteInput): Promise<SummarizeResult> {
@@ -61,7 +62,7 @@ export async function summarizeNote(input: SummarizeNoteInput): Promise<Summariz
     throw new Error('Haiku returned an empty summary');
   }
 
-  return { summary, model: response.model };
+  return { summary, model: response.model, usage: tokenUsage(response.usage) };
 }
 
 // --- Files ---------------------------------------------------------------
@@ -135,7 +136,7 @@ export async function summarizeFile(input: SummarizeFileInput): Promise<Summariz
     throw new Error('Haiku returned an empty file summary');
   }
 
-  return { summary, model: response.model };
+  return { summary, model: response.model, usage: tokenUsage(response.usage) };
 }
 
 // --- Pasted messages (email / WhatsApp) ----------------------------------
@@ -192,7 +193,7 @@ export async function summarizePastedMessage(
     throw new Error('Haiku returned an empty message summary');
   }
 
-  return { summary, model: response.model };
+  return { summary, model: response.model, usage: tokenUsage(response.usage) };
 }
 
 // --- Case roll-up --------------------------------------------------------
@@ -250,7 +251,7 @@ export async function summarizeCase(input: SummarizeCaseInput): Promise<Summariz
     throw new Error('Haiku returned an empty case summary');
   }
 
-  return { summary, model: response.model };
+  return { summary, model: response.model, usage: tokenUsage(response.usage) };
 }
 
 // --- Case roll-up from structured facts (Pass 2) -------------------------
@@ -301,5 +302,5 @@ export async function summarizeCaseFromFacts(
     throw new Error('Haiku returned an empty case summary');
   }
 
-  return { summary, model: response.model };
+  return { summary, model: response.model, usage: tokenUsage(response.usage) };
 }

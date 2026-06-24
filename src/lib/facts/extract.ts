@@ -2,7 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { and, eq } from 'drizzle-orm';
 import type { NewFact, Source } from '@/db/db';
 import { cases, clients, db, facts as factsTable, sources } from '@/db/db';
-import { anthropic, MODELS } from '@/lib/anthropic';
+import { anthropic, MODELS, type TokenUsage, tokenUsage } from '@/lib/anthropic';
 import { type SourceFacts, sourceFactsSchema } from '@/lib/facts/schema';
 import { formatCurrency } from '@/lib/format';
 
@@ -201,6 +201,7 @@ export type ExtractInput =
 export interface ExtractResult {
   facts: SourceFacts;
   model: string;
+  usage: TokenUsage;
 }
 
 // The case this source belongs to — lets the extractor resolve party
@@ -288,7 +289,7 @@ export async function extractSourceFacts(
 
     const parsed = sourceFactsSchema.safeParse(toolUse.input);
     if (parsed.success) {
-      return { facts: parsed.data, model: response.model };
+      return { facts: parsed.data, model: response.model, usage: tokenUsage(response.usage) };
     }
     // Invalid shape — never persist. Retry once more, then give up.
     lastError = new Error(`facts failed validation: ${parsed.error.message}`);
@@ -433,13 +434,18 @@ async function loadCaseContext(
 // (which is still summarised and usable). Leaves facts_extracted_at null
 // so a later retry can pick it up. Loads the case context so the
 // extractor can assign party roles correctly.
-export async function extractAndStoreFacts(source: SourceRef, input: ExtractInput): Promise<void> {
+export async function extractAndStoreFacts(
+  source: SourceRef,
+  input: ExtractInput,
+): Promise<TokenUsage> {
   try {
     const caseContext = await loadCaseContext(source.caseId, source.ownerId);
-    const { facts, model } = await extractSourceFacts(input, caseContext);
+    const { facts, model, usage } = await extractSourceFacts(input, caseContext);
     await persistSourceFacts(source, facts, model);
+    return usage;
   } catch (err) {
     console.error('[facts extraction failed]', source.id, err);
+    return { inputTokens: 0, outputTokens: 0 };
   }
 }
 
