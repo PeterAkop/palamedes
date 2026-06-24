@@ -3,9 +3,13 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { cases, db, generationMessages, generations } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
+import { buildCoverEmailHtml } from '@/lib/email/coverEmail';
+import { getFirmDetails } from '@/lib/firm/queries';
 import { renderMarkdownToHtml } from '@/lib/markdown';
-import { sendMail } from '@/lib/outlook/graph';
+import { sendMail, sendMailWithAttachments } from '@/lib/outlook/graph';
 import { getConnection, getValidAccessToken } from '@/lib/outlook/tokens';
+import { renderLetterPdf } from '@/lib/pdf/letter';
+import { loadFirmLogo } from '@/lib/pdf/logo';
 import { getTool } from '@/lib/tools/registry';
 
 // POST /api/generations/[id]/send — email the current draft of a
@@ -24,6 +28,12 @@ const BodySchema = z.object({
   recipient: z.string().email().optional(),
   // Editable subject from the send dialog; falls back to a derived one.
   subject: z.string().min(1).max(500).optional(),
+  // Also attach the letter as a PDF (market standard); `logo` includes the
+  // firm logo on that PDF. When attaching, the email body is a short cover
+  // note by default — `includeBody` repeats the full letter text inline too.
+  attachPdf: z.boolean().optional(),
+  logo: z.boolean().optional(),
+  includeBody: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -88,13 +98,35 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // was added) surfaces as insufficient_scope → reconnect prompt.
   try {
     const accessToken = await getValidAccessToken(ownerId, 'outlook');
-    // Send the draft as formatted HTML so headings/bold/lists render in the
-    // recipient's inbox rather than raw markdown.
-    await sendMail(accessToken, {
-      to: recipient,
-      subject,
-      bodyHtml: renderMarkdownToHtml(latest.content),
-    });
+    const letterHtml = renderMarkdownToHtml(latest.content);
+
+    if (parsed.data.attachPdf) {
+      // Letter goes as the PDF attachment; the email body is a short cover
+      // note by default so the letter isn't duplicated. `includeBody` repeats
+      // the full text inline; `logo` adds the firm letterhead logo to the PDF.
+      const logo = parsed.data.logo ? await loadFirmLogo(ownerId) : undefined;
+      const pdf = await renderLetterPdf({ content: latest.content, logo });
+      const filename = `${tool?.label ?? 'Letter'} - ${gen.caseTitle}`
+        .replace(/[^\w.\-() ]/g, '_')
+        .slice(0, 120);
+      const bodyHtml = parsed.data.includeBody
+        ? letterHtml
+        : buildCoverEmailHtml({
+            firm: await getFirmDetails(ownerId),
+            documentLabel: tool?.label ?? 'letter',
+            caseTitle: gen.caseTitle,
+          });
+      await sendMailWithAttachments(accessToken, {
+        to: recipient,
+        subject,
+        bodyHtml,
+        attachments: [{ name: `${filename}.pdf`, contentType: 'application/pdf', content: pdf }],
+      });
+    } else {
+      // No attachment — send the draft as formatted HTML so headings/bold/
+      // lists render in the recipient's inbox rather than raw markdown.
+      await sendMail(accessToken, { to: recipient, subject, bodyHtml: letterHtml });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'send_failed';
     console.error('[send] sendMail failed:', { recipient, subject, message, err });

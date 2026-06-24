@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { saveFirmDetailsAction } from '@/app/settings/actions';
 import { FIRM_TEXT_FIELDS, type FirmDetails, type FirmTextField } from '@/lib/firm/fields';
+import LogoUpload from './LogoUpload';
 
 // Firm details form (Settings). These prefill every client-facing
 // generated letter — edited once here rather than retyped per draft.
@@ -145,10 +146,6 @@ function FormBody({ firm, dirty }: { firm: FirmDetails; dirty: boolean }) {
         />
       </div>
 
-      <p className="text-xs text-base-content/40">
-        Firm logo upload arrives with formatted letter export.
-      </p>
-
       <div className="flex justify-end">
         <SubmitButton dirty={dirty} />
       </div>
@@ -193,6 +190,12 @@ export default function FirmSettings({ firm }: { firm: FirmDetails }) {
         <form action={saveFirmDetailsAction} onChange={handleChange} className="mt-2">
           <FormBody firm={firm} dirty={dirty} />
         </form>
+
+        {/* Logo upload — its own control (binary upload), kept outside the
+            text-field form. */}
+        <div className="mt-5 pt-5 border-t border-base-200">
+          <LogoUpload hasLogo={Boolean(firm.logoBlobPath)} />
+        </div>
       </div>
     </div>
   );
