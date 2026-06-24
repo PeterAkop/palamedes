@@ -57,13 +57,13 @@ function parseBlocks(content: string): Block[] {
     const bullet = t.match(/^[-*]\s+(.*)$/);
     if (bullet) {
       flush();
-      blocks.push({ type: 'bullet', text: bullet[1] });
+      if (bullet[1].trim()) blocks.push({ type: 'bullet', text: bullet[1] });
       continue;
     }
     const num = t.match(/^(\d+)\.\s+(.*)$/);
     if (num) {
       flush();
-      blocks.push({ type: 'number', text: num[2], n: Number(num[1]) });
+      if (num[2].trim()) blocks.push({ type: 'number', text: num[2], n: Number(num[1]) });
       continue;
     }
     para.push(raw);
@@ -86,7 +86,7 @@ function inlineRuns(text: string): Array<{ text: string; bold: boolean }> {
 const styles = StyleSheet.create({
   page: { paddingVertical: 56, paddingHorizontal: 56, fontFamily: 'Helvetica', fontSize: 11 },
   logo: { maxWidth: 180, maxHeight: 70, marginBottom: 18, objectFit: 'contain' },
-  heading: { fontFamily: 'Helvetica-Bold', fontSize: 12, marginTop: 10, marginBottom: 4 },
+  heading: { fontFamily: 'Helvetica-Bold', fontSize: 12, marginTop: 16, marginBottom: 8 },
   paragraph: { marginBottom: 8, lineHeight: 1.45 },
   listItem: { flexDirection: 'row', marginBottom: 3, lineHeight: 1.4 },
   bulletMark: { width: 16 },

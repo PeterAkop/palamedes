@@ -120,6 +120,9 @@ export default function ToolRunner({
   // letter as a PDF (market standard). Defaults: logo on, attach on.
   const [withLogo, setWithLogo] = useState(true);
   const [attachPdf, setAttachPdf] = useState(true);
+  // When attaching the PDF, the email body is a short cover note by default;
+  // this repeats the full letter text inline too.
+  const [includeBody, setIncludeBody] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -343,6 +346,7 @@ export default function ToolRunner({
           recipient: recipient.trim(),
           attachPdf,
           logo: withLogo,
+          includeBody,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -682,30 +686,50 @@ export default function ToolRunner({
 
                       {/* PDF options — attach the letter as a PDF (standard
                           for formal correspondence), optionally with logo. */}
-                      <div className="flex items-center gap-4">
-                        <label className="flex items-center gap-2 text-sm cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={attachPdf}
-                            onChange={(e) => setAttachPdf(e.target.checked)}
-                            className="checkbox checkbox-sm"
-                          />
-                          Attach as PDF
-                        </label>
-                        <label
-                          className={`flex items-center gap-2 text-sm cursor-pointer ${
-                            attachPdf ? '' : 'opacity-40'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={withLogo}
-                            disabled={!attachPdf}
-                            onChange={(e) => setWithLogo(e.target.checked)}
-                            className="checkbox checkbox-sm"
-                          />
-                          Include letterhead logo
-                        </label>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-4">
+                          <label className="flex items-center gap-2 text-sm cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={attachPdf}
+                              onChange={(e) => setAttachPdf(e.target.checked)}
+                              className="checkbox checkbox-sm"
+                            />
+                            Attach as PDF
+                          </label>
+                          <label
+                            className={`flex items-center gap-2 text-sm cursor-pointer ${
+                              attachPdf ? '' : 'opacity-40'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={withLogo}
+                              disabled={!attachPdf}
+                              onChange={(e) => setWithLogo(e.target.checked)}
+                              className="checkbox checkbox-sm"
+                            />
+                            Include letterhead logo
+                          </label>
+                        </div>
+                        {attachPdf && (
+                          <label className="flex items-center gap-2 text-sm cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={includeBody}
+                              onChange={(e) => setIncludeBody(e.target.checked)}
+                              className="checkbox checkbox-sm"
+                            />
+                            Also put the letter text in the email body
+                          </label>
+                        )}
+                        <p className="text-xs text-base-content/50">
+                          {attachPdf
+                            ? includeBody
+                              ? 'The recipient gets a short cover note, the letter text inline, and the PDF.'
+                              : 'The recipient gets a short cover note with the letter attached as a PDF.'
+                            : 'The letter is sent as the email body (no attachment).'}
+                        </p>
                       </div>
 
                       <div className="flex items-center justify-end gap-2">
