@@ -1,101 +1,123 @@
 'use client';
 
-import { Loader2, Upload } from 'lucide-react';
-import { type ChangeEvent, useRef, useState } from 'react';
-import { revalidateCases } from '@/app/cases/actions';
+import { FolderUp, Loader2, Upload } from 'lucide-react';
+import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from 'react';
+import { ACCEPT_ATTR, collectDroppedFiles } from '@/lib/upload/collect';
+import { useBulkUpload } from './useBulkUpload';
 
-// "Upload" button + hidden file input. No modal — picking a file is
-// the entire UX. Click → native file picker → file selected → POST
-// multipart to /api/sources/upload → router.refresh() once the
-// route returns a ready source row.
-//
-// Loading state takes over the button while the upload + Anthropic
-// Files API + Haiku summary round-trip; for a 1–5 MB PDF that's
-// usually 3–8 seconds. Errors surface inline next to the button.
-
-const ACCEPTED = '.pdf,.jpg,.jpeg,.png,.webp';
-
-// Mirror of the route's server-side limit so we fail fast instead of
-// uploading 25 MB and seeing the 413 come back.
-const MAX_BYTES = 25 * 1024 * 1024;
+// Upload affordance for the Sources tab. Supports:
+//  - picking one or many files (multiple)
+//  - picking a whole folder (webkitdirectory) — for cases with lots of docs
+//  - dropping files OR a folder onto the button (recurses subfolders)
+// Files upload through a concurrency pool (see useBulkUpload); the button
+// shows live "Uploading n/N" progress. Sources land as `processing` and the
+// Sources list updates as analysis completes.
 
 interface Props {
   caseId: string;
 }
 
 export default function UploadButton({ caseId }: Props) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isPending, setIsPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const { upload, isUploading, progress, error } = useBulkUpload(caseId);
 
-  function pickFile() {
-    setError(null);
-    fileInputRef.current?.click();
+  // `webkitdirectory` isn't a typed React prop — set it on the folder input
+  // imperatively so the picker selects an entire directory.
+  useEffect(() => {
+    if (folderRef.current) {
+      folderRef.current.setAttribute('webkitdirectory', '');
+      folderRef.current.setAttribute('directory', '');
+    }
+  }, []);
+
+  function onPicked(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ''; // allow re-selecting the same files
+    if (files.length > 0) void upload(files);
   }
 
-  async function handleFile(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    // Reset the input *before* the early return so the same file can
-    // be reselected (browsers ignore a change event if the new value
-    // equals the previous one).
-    e.target.value = '';
-    if (!file) return;
-
-    if (file.size > MAX_BYTES) {
-      setError(`Too large (${(file.size / 1024 / 1024).toFixed(1)} MB); max 25 MB`);
-      return;
-    }
-
-    setError(null);
-    setIsPending(true);
-
-    try {
-      const formData = new FormData();
-      formData.append('caseId', caseId);
-      formData.append('file', file);
-      formData.append('title', file.name);
-
-      const res = await fetch('/api/sources/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          message?: string;
-        };
-        throw new Error(data.message ?? data.error ?? 'Upload failed');
-      }
-
-      await revalidateCases();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setIsPending(false);
-    }
+  async function onDrop(e: DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    if (isUploading) return;
+    const files = await collectDroppedFiles(e.dataTransfer);
+    if (files.length > 0) void upload(files);
   }
+
+  const label = isUploading
+    ? progress
+      ? `Uploading ${progress.done}/${progress.total}…`
+      : 'Uploading…'
+    : 'Upload';
 
   return (
     <div className="flex items-center gap-2">
-      {error && <span className="text-xs text-error max-w-[14rem] truncate">{error}</span>}
+      {error && (
+        <span className="text-xs text-error max-w-[14rem] truncate" title={error}>
+          {error}
+        </span>
+      )}
+
       <input
-        ref={fileInputRef}
+        ref={fileRef}
         type="file"
-        accept={ACCEPTED}
-        onChange={handleFile}
-        disabled={isPending}
+        multiple
+        accept={ACCEPT_ATTR}
+        onChange={onPicked}
+        disabled={isUploading}
         className="hidden"
       />
-      <button
-        type="button"
-        onClick={pickFile}
-        disabled={isPending}
-        className="btn btn-sm btn-primary gap-1"
+      {/* Folder picker — selects every file in the chosen directory; we
+          filter to supported types client-side. */}
+      <input
+        ref={folderRef}
+        type="file"
+        multiple
+        onChange={onPicked}
+        disabled={isUploading}
+        className="hidden"
+      />
+
+      {/* The button group is itself a drop target. */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-drop zone wrapping the upload buttons (clicking the buttons remains the keyboard path) */}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!isUploading) setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        className={`flex items-center gap-1 rounded-md transition ${
+          dragOver ? 'ring-2 ring-primary ring-offset-2 ring-offset-base-100' : ''
+        }`}
+        title="Drop files or a folder here"
       >
-        {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-        {isPending ? 'Summarising…' : 'Upload'}
-      </button>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={isUploading}
+          className="btn btn-sm btn-primary gap-1"
+        >
+          {isUploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="h-4 w-4" />
+          )}
+          {label}
+        </button>
+        <button
+          type="button"
+          onClick={() => folderRef.current?.click()}
+          disabled={isUploading}
+          title="Upload a folder"
+          aria-label="Upload a folder"
+          className="btn btn-sm btn-ghost btn-square"
+        >
+          <FolderUp className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   );
 }
