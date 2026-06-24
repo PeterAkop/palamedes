@@ -3,6 +3,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { cases, db, generationMessages, generations } from '@/db/db';
 import { getCurrentUserId } from '@/lib/auth';
+import { buildCoverEmailHtml } from '@/lib/email/coverEmail';
+import { getFirmDetails } from '@/lib/firm/queries';
 import { renderMarkdownToHtml } from '@/lib/markdown';
 import { sendMail, sendMailWithAttachments } from '@/lib/outlook/graph';
 import { getConnection, getValidAccessToken } from '@/lib/outlook/tokens';
@@ -109,7 +111,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         .slice(0, 120);
       const bodyHtml = parsed.data.includeBody
         ? letterHtml
-        : '<p>Please find the letter attached.</p>';
+        : buildCoverEmailHtml({
+            firm: await getFirmDetails(ownerId),
+            documentLabel: tool?.label ?? 'letter',
+            caseTitle: gen.caseTitle,
+          });
       await sendMailWithAttachments(accessToken, {
         to: recipient,
         subject,

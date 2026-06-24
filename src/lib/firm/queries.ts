@@ -61,3 +61,15 @@ export async function saveFirmDetails(
       set: { ...normalized, updatedAt: new Date() },
     });
 }
+
+// Set (or clear, with null) the firm logo blob path. Upserts so it works
+// before any text fields have been saved.
+export async function setFirmLogo(ownerId: string, logoBlobPath: string | null): Promise<void> {
+  await db
+    .insert(firmSettings)
+    .values({ ownerId, logoBlobPath })
+    .onConflictDoUpdate({
+      target: firmSettings.ownerId,
+      set: { logoBlobPath, updatedAt: new Date() },
+    });
+}
