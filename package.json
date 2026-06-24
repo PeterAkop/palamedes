@@ -17,6 +17,7 @@
     "@anthropic-ai/sdk": "^0.98.0",
     "@auth/drizzle-adapter": "^1.11.2",
     "@neondatabase/serverless": "^1.1.0",
+    "@react-pdf/renderer": "^4.5.1",
     "@vercel/blob": "^2.4.0",
     "daisyui": "^5.5.23",
     "drizzle-orm": "^0.45.2",
