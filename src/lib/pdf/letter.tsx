@@ -85,9 +85,14 @@ function inlineRuns(text: string): Array<{ text: string; bold: boolean }> {
 
 const styles = StyleSheet.create({
   page: { paddingVertical: 56, paddingHorizontal: 56, fontFamily: 'Helvetica', fontSize: 11 },
-  logo: { maxWidth: 180, maxHeight: 70, marginBottom: 18, objectFit: 'contain' },
+  // Height-only so the width scales by aspect ratio; flex-start keeps the
+  // logo's left edge on the text margin (no centering in a wide box).
+  logo: { height: 52, marginBottom: 18, alignSelf: 'flex-start' },
   heading: { fontFamily: 'Helvetica-Bold', fontSize: 12, marginTop: 16, marginBottom: 8 },
   paragraph: { marginBottom: 8, lineHeight: 1.45 },
+  // Short standalone lines — letterhead, address, salutation, signoff — sit
+  // tight so they read as a block instead of double-spaced.
+  paragraphTight: { marginBottom: 2, lineHeight: 1.3 },
   listItem: { flexDirection: 'row', marginBottom: 3, lineHeight: 1.4 },
   bulletMark: { width: 16 },
   listText: { flex: 1 },
@@ -140,8 +145,11 @@ function LetterDoc({ content, logoSrc }: { content: string; logoSrc?: string }) 
                 </Text>
               </View>
             );
+          // Short single lines (letterhead / address / salutation) group
+          // tightly; prose paragraphs keep full spacing.
+          const tight = !b.text.includes('\n') && b.text.trim().length <= 55;
           return (
-            <Text key={key} style={styles.paragraph}>
+            <Text key={key} style={tight ? styles.paragraphTight : styles.paragraph}>
               <Runs text={b.text} />
             </Text>
           );
