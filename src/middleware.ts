@@ -19,7 +19,9 @@ export default auth((req) => {
     nextUrl.pathname.startsWith('/api/auth') ||
     // Client document upload via a tokenised link — no account needed.
     nextUrl.pathname.startsWith('/upload/') ||
-    nextUrl.pathname.startsWith('/api/upload/');
+    nextUrl.pathname.startsWith('/api/upload/') ||
+    // Inngest queue endpoint — called by Inngest, verified via signing key.
+    nextUrl.pathname.startsWith('/api/inngest');
 
   if (!isLoggedIn && !isPublic) {
     return NextResponse.redirect(new URL('/sign-in', nextUrl.origin));

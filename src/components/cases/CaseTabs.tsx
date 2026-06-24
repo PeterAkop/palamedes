@@ -290,6 +290,56 @@ function OverviewTab({ caseData, client }: { caseData: Case; client: Client | un
 
 const SOURCES_PAGE_SIZE = 10;
 
+// Cycles through the titles of the sources currently being analysed, sliding
+// each new name up into place. Resets when the set changes (a file finished).
+function ProcessingRotator({ names }: { names: string[] }) {
+  const [i, setI] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on set size change
+  useEffect(() => setI(0), [names.length]);
+  useEffect(() => {
+    if (names.length <= 1) return;
+    const id = setInterval(() => setI((x) => (x + 1) % names.length), 2200);
+    return () => clearInterval(id);
+  }, [names.length]);
+  if (names.length === 0) return null;
+  const name = names[i % names.length];
+  return (
+    <span className="block h-5 overflow-hidden">
+      <span key={`${i}-${name}`} className="block truncate text-sm font-medium animate-rotate-in">
+        {name}
+      </span>
+    </span>
+  );
+}
+
+// Live banner while analysis is draining the queue: a rotating "now
+// analysing" filename, a count, and a progress bar. Hidden once nothing is
+// processing. Counts come straight from the polled source statuses.
+function AnalysisProgress({ sources }: { sources: Source[] }) {
+  const processing = sources.filter((s) => s.status === 'processing');
+  if (processing.length === 0) return null;
+  const total = sources.length;
+  const done = sources.filter((s) => s.status === 'ready').length;
+  return (
+    <div className="rounded-md border border-primary/30 bg-primary/5 p-3 flex items-center gap-3">
+      <span className="loading loading-spinner loading-sm text-primary shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs uppercase tracking-wide text-primary/70 mb-0.5">Analysing sources</p>
+        <ProcessingRotator names={processing.map((s) => s.title)} />
+        <progress
+          className="progress progress-primary w-full mt-1.5 h-1.5"
+          value={done}
+          max={total}
+        />
+      </div>
+      <div className="text-right shrink-0 leading-none">
+        <span className="text-lg font-semibold tabular-nums">{done}</span>
+        <span className="text-base-content/50 text-sm"> / {total}</span>
+      </div>
+    </div>
+  );
+}
+
 function SourcesTab({
   caseId,
   sources,
@@ -299,6 +349,7 @@ function SourcesTab({
   sources: Source[];
   factsBySource: Record<string, CaseFactView[]>;
 }) {
+  const router = useRouter();
   const [kind, setKind] = useState<SourceKind | 'all'>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -306,6 +357,16 @@ function SourcesTab({
   // Source jumped to via a fact's provenance link (#source-<id>). We open
   // it, clear filters and page to it so it's actually visible.
   const [targetId, setTargetId] = useState<string | null>(null);
+
+  // Analysis runs async on the queue, so sources land as `processing` and
+  // flip to `ready` behind the request. Poll while any are still processing
+  // so the list updates live (the interval clears once everything settles).
+  const anyProcessing = sources.some((s) => s.status === 'processing');
+  useEffect(() => {
+    if (!anyProcessing) return;
+    const id = setInterval(() => router.refresh(), 4000);
+    return () => clearInterval(id);
+  }, [anyProcessing, router]);
 
   // Read the #source-<id> hash on mount and whenever it changes.
   useEffect(() => {
@@ -395,6 +456,8 @@ function SourcesTab({
           <UploadButton caseId={caseId} />
         </div>
       </div>
+
+      <AnalysisProgress sources={sources} />
 
       {sources.length === 0 ? (
         <div className="text-center py-10 text-base-content/50">
@@ -754,7 +817,7 @@ function SourceStatusBadge({ status }: { status: Source['status'] }) {
   return (
     <span className="badge badge-info badge-sm gap-1">
       <span className="loading loading-spinner loading-xs" />
-      Processing…
+      Analysing…
     </span>
   );
 }

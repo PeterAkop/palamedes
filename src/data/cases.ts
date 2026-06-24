@@ -154,6 +154,9 @@ export interface SidebarItem {
   caseTitle: string;
   caseStatus: CaseStatus;
   clientSurname: string;
+  // Count of sources still being analysed (queue in flight) — drives the
+  // "analysing" indicator on the sidebar row. 0 when nothing is pending.
+  processing: number;
 }
 
 // Minimal client shape for the New-case modal's existing-client

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db, type Source, sources } from '@/db/db';
 import { getSourceFileStream } from '@/lib/blob';
-import { extractAndStoreFacts, extractInputFromRow } from '@/lib/facts/extract';
+import { type ExtractInput, extractAndStoreFacts, extractInputFromRow } from '@/lib/facts/extract';
 import { DOCX_MIME, extractDocxText } from '@/lib/sources/docx';
 import {
   type SummarizeResult,
@@ -101,9 +101,33 @@ export async function reprocessSource(row: Source): Promise<Source> {
   }
 
   // Pass 1 — re-extract facts (best-effort; the source is already ready).
-  const input = extractInputFromRow(row);
+  const input = await buildExtractInput(row);
   if (input) {
     await extractAndStoreFacts({ id: row.id, caseId: row.caseId, ownerId: row.ownerId }, input);
   }
   return updated;
+}
+
+// Build the fact-extraction input for a stored row. `extractInputFromRow`
+// can't handle docx (no Anthropic file id), so for a docx source we read the
+// text back from the blob — otherwise a docx that's analysed via the queue
+// would get a summary but no extracted facts.
+async function buildExtractInput(row: Source): Promise<ExtractInput | null> {
+  const base = extractInputFromRow(row);
+  if (base) return base;
+
+  const meta = (row.metadata ?? {}) as Record<string, string | undefined>;
+  if (
+    (row.kind === 'file' || row.kind === 'scan') &&
+    meta.mime_type === DOCX_MIME &&
+    row.blobPath
+  ) {
+    const file = await getSourceFileStream(row.blobPath);
+    if (!file) return null;
+    const buf = Buffer.from(await new Response(file.stream).arrayBuffer());
+    const text = extractDocxText(buf);
+    if (!text.trim()) return null;
+    return { mode: 'text', kind: 'note', title: row.title, body: text };
+  }
+  return null;
 }

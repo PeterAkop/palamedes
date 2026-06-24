@@ -3,10 +3,9 @@ import { eq } from 'drizzle-orm';
 import { db, type Source, sources } from '@/db/db';
 import { anthropic } from '@/lib/anthropic';
 import { uploadSourceFile } from '@/lib/blob';
-import { extractAndStoreFacts } from '@/lib/facts/extract';
+import { enqueueSourceAnalysis } from '@/lib/inngest/enqueue';
 import { contentHash, findCaseSourceByContentHash } from '@/lib/sources/dedup';
-import { DOCX_MIME, extractDocxText } from '@/lib/sources/docx';
-import { summarizeFile, summarizeNote } from '@/lib/sources/summarize';
+import { DOCX_MIME } from '@/lib/sources/docx';
 
 // Shared file-upload ingest + security validation. Used by the
 // authenticated upload route and the public client-upload route, so both
@@ -174,90 +173,27 @@ export async function ingestFileSource(args: {
   };
   if (origin) metadata.origin = origin;
 
-  const [inserted] = await db
-    .insert(sources)
-    .values({ caseId, ownerId, kind, title, metadata, status: 'processing' })
-    .returning({ id: sources.id });
+  // Types we'll analyse (summary + facts). Others are stored without one.
+  const analyzable = ANTHROPIC_READABLE.has(file.type) || file.type === DOCX_MIME;
 
+  // Store half (fast): archive to Blob + upload Claude-readable types to the
+  // Anthropic Files API so the queued analysis has the file id. No inference
+  // here — summary + facts run on the queue (reprocessSource).
+  let blobUrl: string;
+  let anthropicFileId: string | null = null;
   try {
-    const { url: blobUrl } = await uploadSourceFile({
+    ({ url: blobUrl } = await uploadSourceFile({
       filename,
       body: fileBuffer,
       contentType: file.type,
-    });
-
-    if (file.type === DOCX_MIME) {
-      const text = extractDocxText(fileBuffer);
-      const update: Partial<typeof sources.$inferInsert> = {
-        status: 'ready',
-        blobPath: blobUrl,
-        updatedAt: new Date(),
-      };
-      if (text.trim()) {
-        const { summary, model } = await summarizeNote({ title, body: text });
-        update.aiSummary = summary;
-        update.aiSummaryModel = model;
-      }
-      const [updated] = await db
-        .update(sources)
-        .set(update)
-        .where(eq(sources.id, inserted.id))
-        .returning();
-      if (text.trim()) {
-        await extractAndStoreFacts(
-          { id: inserted.id, caseId, ownerId },
-          {
-            mode: 'text',
-            kind: 'note',
-            title,
-            body: text,
-          },
-        );
-      }
-      return updated;
-    }
-
+    }));
     if (ANTHROPIC_READABLE.has(file.type)) {
-      const anthropicFile = await anthropic.beta.files.upload({
+      const f = await anthropic.beta.files.upload({
         file: await toFile(fileBuffer, filename, { type: file.type }),
         betas: ['files-api-2025-04-14'],
       });
-      const { summary, model } = await summarizeFile({
-        title,
-        mimeType: file.type,
-        anthropicFileId: anthropicFile.id,
-      });
-      const [updated] = await db
-        .update(sources)
-        .set({
-          status: 'ready',
-          blobPath: blobUrl,
-          anthropicFileId: anthropicFile.id,
-          aiSummary: summary,
-          aiSummaryModel: model,
-          updatedAt: new Date(),
-        })
-        .where(eq(sources.id, inserted.id))
-        .returning();
-      await extractAndStoreFacts(
-        { id: inserted.id, caseId, ownerId },
-        {
-          mode: 'file',
-          title,
-          mimeType: file.type,
-          anthropicFileId: anthropicFile.id,
-        },
-      );
-      return updated;
+      anthropicFileId = f.id;
     }
-
-    // Other allowed types (xlsx/xls/txt/gif/heic) — stored, no AI summary.
-    const [updated] = await db
-      .update(sources)
-      .set({ status: 'ready', blobPath: blobUrl, updatedAt: new Date() })
-      .where(eq(sources.id, inserted.id))
-      .returning();
-    return updated;
   } catch (err) {
     const message =
       err instanceof Anthropic.APIError
@@ -265,11 +201,27 @@ export async function ingestFileSource(args: {
         : err instanceof Error
           ? err.message
           : 'unknown error';
-    const [updated] = await db
-      .update(sources)
-      .set({ status: 'failed', errorMessage: message, updatedAt: new Date() })
-      .where(eq(sources.id, inserted.id))
+    const [failed] = await db
+      .insert(sources)
+      .values({ caseId, ownerId, kind, title, metadata, status: 'failed', errorMessage: message })
       .returning();
-    return updated;
+    return failed;
   }
+
+  const [inserted] = await db
+    .insert(sources)
+    .values({
+      caseId,
+      ownerId,
+      kind,
+      title,
+      metadata,
+      blobPath: blobUrl,
+      anthropicFileId,
+      status: analyzable ? 'processing' : 'ready',
+    })
+    .returning();
+
+  if (analyzable) await enqueueSourceAnalysis(inserted.id, ownerId);
+  return inserted;
 }
